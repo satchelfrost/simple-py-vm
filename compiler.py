@@ -3,8 +3,8 @@ from enum import Enum
 
 class LogLevel(Enum):
     NONE    = 0
-    VERBOSE = 1
-    INFO    = 2
+    INFO    = 1
+    VERBOSE = 2
     WARNING = 3
     ERROR   = 4
 
@@ -243,13 +243,13 @@ class InterpretResult(Enum):
     OK          = 0
     COMPILE_ERR = 1
     RUNTIME_ERR = 2
-    HALT        = 3
 
 class VM:
-    def __init__(self):
+    def __init__(self, loglvl=LogLevel.NONE):
         self.ip    = 0
         self.stack = []
         self.chunk = None
+        self.log_lvl = loglvl
 
     def read_byte(self, chunk):
         byte = chunk.code[self.ip]
@@ -259,81 +259,86 @@ class VM:
     def interpret(self, chunk : Chunk):
         self.chunk = chunk
         while self.ip < len(chunk.code):
+            if self.log_lvl == LogLevel.VERBOSE:
+                for obj in self.stack:
+                    print(f'[{obj}]')
+                chunk.disass_instr(self.ip)
             opcode = Opcode(self.read_byte(chunk))
             match opcode:
                 case Opcode.CONST:
                     idx   = self.read_byte(chunk)
                     value = chunk.constants[idx]
                     self.stack.append(value)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.RET:
                     print(self.stack.pop())
-                    return InterpretResult.HALT
+                    return InterpretResult.OK
                 case Opcode.LT:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a < b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.LTE:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a <= b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.GT:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a > b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.GTE:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a >= b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.EQ:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a == b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.NOT_EQ:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a != b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.ADD:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a + b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.SUB:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a - b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.MULT:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a * b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.DIV:
                     b = self.stack.pop()
                     a = self.stack.pop()
                     self.stack.append(a / b)
-                    return InterpretResult.OK
+                    continue
                 case Opcode.NEG:
                     a = self.stack.pop()
                     self.stack.append(-a)
-                    return InterpretResult.OK
+                    continue
                 case _:
                     print(f'{opcode} unhandled')
                     return InterpretResult.RUNTIME_ERR
-        return InterpretResult.OK
+        print('no code left in chunk')
+        return InterpretResult.RUNTIME_ERR
 
 def main():
     file_name = 'tests/compare.py'
     with open(file_name) as file:
         src = file.read()
         node = ast.parse(src, filename=file_name)
-        log_lvl = LogLevel.INFO
+        log_lvl = LogLevel.VERBOSE
         if log_lvl.value > 0:
             print('-' * (len(str(log_lvl)) + 4))
             print('| ' + str(log_lvl) + ' |')
@@ -361,19 +366,22 @@ def main():
             print('------')
             print('| VM |')
             print('------')
-        vm = VM()
+            if log_lvl == LogLevel.VERBOSE:
+                print('---------------')
+                print('| Stack Trace |')
+                print('---------------')
+
+        vm = VM(loglvl=log_lvl)
         while True:
             res = vm.interpret(compiler.chunk)
             match res:
                 case InterpretResult.OK:
-                    continue
+                    break
                 case InterpretResult.COMPILE_ERR:
                     print('compiler error')
                     return
                 case InterpretResult.RUNTIME_ERR:
                     print('runtime error')
-                    return
-                case InterpretResult.HALT:
                     return
                 case _:
                     print(f'unknown error {res}')
