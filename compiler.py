@@ -30,12 +30,13 @@ class Opcode(Enum):
     NEG     = 18
     RET     = 19
     CONST   = 20
+    PRINT   = 21
+    NIL     = 22
 
 class Chunk:
     def __init__(self):
         self.code = bytearray()
         self.constants = []
-        self.offset = 0
 
     def disass(self):
         offset = 0
@@ -84,12 +85,14 @@ class Chunk:
                 return self.deflt_disass(offset, opcode)
             case Opcode.RET:
                 return self.deflt_disass(offset, opcode)
+            case Opcode.PRINT:
+                return self.deflt_disass(offset, opcode)
             case _:
                 print(f'{offset:04} {opcode} [WARNING] - unknown opcode')
                 return offset + 1
 
     def deflt_disass(self, offset: int, opcode: Opcode):
-        print(f'{offset:04} | {opcode}')
+        print(f'{offset:04} {opcode}')
         return offset + 1
 
 class Compiler:
@@ -140,12 +143,15 @@ class Compiler:
 
     def visit_Assign(self, node: ast.Assign):
         self.log_node(node)
+        assert False, "Assign has no implementation" # TODO
 
     def visit_Name(self, node: ast.Name):
         self.log_node(node)
+        assert False, "Name has no implementation" # TODO
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         self.log_node(node)
+        assert False, "FunctionDef has no implementation" # TODO
 
     def visit_Return(self, node: ast.Return):
         self.visit(node.value)
@@ -230,16 +236,24 @@ class Compiler:
             case ast.UAdd():
                 self.chunk.code.append(Opcode.UADD.value)
 
-    def visit_While(self, node: ast.For):
+    def visit_While(self, node: ast.While):
         self.log_node(node)
+        assert False, "While has no implementation" # TODO
 
     def visit_If(self, node: ast.If):
         self.log_node(node)
+        assert False, "If has no implementation" # TODO
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call): # TODO still incomplete
         self.log_node(node)
+        for arg in node.args:
+            self.visit(arg)
+        match node.func:
+            case ast.Name():
+                if node.func.id == 'print':
+                    self.chunk.code.append(Opcode.PRINT.value)
 
-class InterpretResult(Enum):
+class Result(Enum):
     OK          = 0
     COMPILE_ERR = 1
     RUNTIME_ERR = 2
@@ -265,14 +279,16 @@ class VM:
                 chunk.disass_instr(self.ip)
             opcode = Opcode(self.read_byte(chunk))
             match opcode:
+                case Opcode.RET:
+                    return Result.OK
                 case Opcode.CONST:
                     idx   = self.read_byte(chunk)
                     value = chunk.constants[idx]
                     self.stack.append(value)
                     continue
-                case Opcode.RET:
+                case Opcode.PRINT:
                     print(self.stack.pop())
-                    return InterpretResult.OK
+                    continue
                 case Opcode.LT:
                     b = self.stack.pop()
                     a = self.stack.pop()
@@ -329,16 +345,15 @@ class VM:
                     continue
                 case _:
                     print(f'{opcode} unhandled')
-                    return InterpretResult.RUNTIME_ERR
-        print('no code left in chunk')
-        return InterpretResult.RUNTIME_ERR
+                    return Result.RUNTIME_ERR
+        return Result.OK
 
+log_lvl = LogLevel.VERBOSE
 def main():
     file_name = 'tests/compare.py'
     with open(file_name) as file:
         src = file.read()
         node = ast.parse(src, filename=file_name)
-        log_lvl = LogLevel.VERBOSE
         if log_lvl.value > 0:
             print('-' * (len(str(log_lvl)) + 4))
             print('| ' + str(log_lvl) + ' |')
@@ -375,12 +390,12 @@ def main():
         while True:
             res = vm.interpret(compiler.chunk)
             match res:
-                case InterpretResult.OK:
+                case Result.OK:
                     break
-                case InterpretResult.COMPILE_ERR:
+                case Result.COMPILE_ERR:
                     print('compiler error')
                     return
-                case InterpretResult.RUNTIME_ERR:
+                case Result.RUNTIME_ERR:
                     print('runtime error')
                     return
                 case _:
