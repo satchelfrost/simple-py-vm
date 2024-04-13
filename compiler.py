@@ -2,40 +2,61 @@ import ast
 from enum import Enum
 
 class LogLevel(Enum):
-    NONE    = 0
+    DEBUG   = 0
     INFO    = 1
-    VERBOSE = 2
-    WARNING = 3
-    ERROR   = 4
+    WARNING = 2
+    ERROR   = 3
 
 class Opcode(Enum):
-    ADD     = 0
-    SUB     = 1
-    MULT    = 2
-    DIV     = 3
-    AND     = 4
-    BIT_AND = 5
-    OR      = 6
-    BIT_OR  = 7
-    BIT_XOR = 8
-    LT      = 9
-    LTE     = 10
-    GT      = 11
-    GTE     = 12
-    EQ      = 13
-    NOT_EQ  = 14
-    INVERT  = 15
-    NOT     = 16
-    UADD    = 17
-    NEG     = 18
-    RET     = 19
-    CONST   = 20
-    PRINT   = 21
-    NIL     = 22
+    ADD        = 0
+    SUB        = 1
+    MULT       = 2
+    DIV        = 3
+    AND        = 4
+    BIT_AND    = 5
+    OR         = 6
+    BIT_OR     = 7
+    BIT_XOR    = 8
+    LT         = 9
+    LTE        = 10
+    GT         = 11
+    GTE        = 12
+    EQ         = 13
+    NOT_EQ     = 14
+    INVERT     = 15
+    NOT        = 16
+    UADD       = 17
+    NEG        = 18
+    RET        = 19
+    CONST      = 20
+    PRINT      = 21
+    NIL        = 22
+    GET_GLOBAL = 23
+    SET_GLOBAL = 24
+    DEF_GLOBAL = 25
+    POP        = 26
+
+opcode_to_op = {
+    Opcode.ADD     : lambda a, b: a +   b,
+    Opcode.SUB     : lambda a, b: a -   b,
+    Opcode.MULT    : lambda a, b: a *   b,
+    Opcode.DIV     : lambda a, b: a /   b,
+    Opcode.AND     : lambda a, b: a and b,
+    Opcode.BIT_AND : lambda a, b: a &   b,
+    Opcode.OR      : lambda a, b: a or  b,
+    Opcode.BIT_OR  : lambda a, b: a |   b,
+    Opcode.BIT_XOR : lambda a, b: a ^   b,
+    Opcode.LT      : lambda a, b: a <   b,
+    Opcode.LTE     : lambda a, b: a <=  b,
+    Opcode.GT      : lambda a, b: a >   b,
+    Opcode.GTE     : lambda a, b: a >=  b,
+    Opcode.EQ      : lambda a, b: a ==  b,
+    Opcode.NOT_EQ  : lambda a, b: a !=  b,
+}
 
 class Chunk:
     def __init__(self):
-        self.code = bytearray()
+        self.code      = bytearray()
         self.constants = []
 
     def disass(self):
@@ -51,63 +72,30 @@ class Chunk:
                 value = self.constants[idx]
                 print(f'{offset:04} {opcode} {value}')
                 return offset + 2
-            case Opcode.NEG:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.ADD:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.SUB:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.MULT:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.DIV:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.AND:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.BIT_AND:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.OR:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.BIT_OR:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.BIT_XOR:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.LT:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.LTE:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.GT:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.GTE:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.EQ:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.NOT_EQ:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.RET:
-                return self.deflt_disass(offset, opcode)
-            case Opcode.PRINT:
-                return self.deflt_disass(offset, opcode)
+            case Opcode.DEF_GLOBAL:
+                idx   = self.code[offset + 1]
+                value = self.constants[idx]
+                print(f'{offset:04} {opcode} {value}')
+                return offset + 2
             case _:
-                print(f'{offset:04} {opcode} [WARNING] - unknown opcode')
+                print(f'{offset:04} {opcode}')
                 return offset + 1
 
-    def deflt_disass(self, offset: int, opcode: Opcode):
-        print(f'{offset:04} {opcode}')
-        return offset + 1
-
 class Compiler:
-    def __init__(self, loglvl=LogLevel.NONE):
+    def __init__(self, loglvl=LogLevel.WARNING):
         self.chunks  = [Chunk()]
         self.chunk   = self.chunks[0]
         self.log_lvl = loglvl
+        self.globals = set()
 
     def log_node(self, node):
-        if self.log_lvl.value > 0:
-            match self.log_lvl:
-                case LogLevel.VERBOSE:
-                    print(ast.dump(node))
-                case _:
-                    print(str(node).split(' ')[0][1:])
+        match self.log_lvl:
+            case LogLevel.DEBUG:
+                print(ast.dump(node))
+            case LogLevel.INFO:
+                print(str(node).split(' ')[0][1:])
+            case _:
+                pass
 
     def visit(self, node):
         name = node.__class__.__name__
@@ -125,6 +113,7 @@ class Compiler:
     def visit_Expr(self, node: ast.Expr):
         self.log_node(node)
         self.visit(node.value)
+        self.chunk.code.append(Opcode.POP.value)
 
     def visit_Constant(self, node: ast.Constant):
         self.log_node(node)
@@ -143,11 +132,31 @@ class Compiler:
 
     def visit_Assign(self, node: ast.Assign):
         self.log_node(node)
-        assert False, "Assign has no implementation" # TODO
+        for target in node.targets:
+            match target:
+                case ast.Name():
+                    self.visit(node.value)
+                    self.visit(target)
+                    assert len(self.chunk.constants) < 256, 'exceeded constants for chunk'
+                    self.chunk.constants.append(target.id)
+                    self.chunk.code.append(len(self.chunk.constants) - 1)
+                case _:
+                    assert False, f'unhandled target {target} in Assign'
 
     def visit_Name(self, node: ast.Name):
         self.log_node(node)
-        assert False, "Name has no implementation" # TODO
+        match node.ctx:
+            case ast.Load():
+                self.chunk.code.append(Opcode.GET_GLOBAL.value)
+            case ast.Store():
+                if node.id in self.globals:
+                    self.chunk.code.append(Opcode.SET_GLOBAL.value)
+                else:
+                    self.globals.add(node.id)
+                    self.chunk.code.append(Opcode.DEF_GLOBAL.value)
+            case ast.Del():
+                if self.log_lvl.value <= LogLevel.WARNING.value:
+                    print('warning ast.Del() currently does nothing')
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         self.log_node(node)
@@ -252,6 +261,7 @@ class Compiler:
             case ast.Name():
                 if node.func.id == 'print':
                     self.chunk.code.append(Opcode.PRINT.value)
+                    self.chunk.code.append(Opcode.NIL.value)
 
 class Result(Enum):
     OK          = 0
@@ -259,11 +269,12 @@ class Result(Enum):
     RUNTIME_ERR = 2
 
 class VM:
-    def __init__(self, loglvl=LogLevel.NONE):
-        self.ip    = 0
-        self.stack = []
-        self.chunk = None
+    def __init__(self, loglvl=LogLevel.ERROR):
+        self.ip      = 0
+        self.stack   = []
+        self.chunk   = None
         self.log_lvl = loglvl
+        self.globals = {}
 
     def read_byte(self, chunk):
         byte = chunk.code[self.ip]
@@ -273,11 +284,21 @@ class VM:
     def interpret(self, chunk : Chunk):
         self.chunk = chunk
         while self.ip < len(chunk.code):
-            if self.log_lvl == LogLevel.VERBOSE:
+            if self.log_lvl == LogLevel.DEBUG:
                 for obj in self.stack:
                     print(f'[{obj}]')
                 chunk.disass_instr(self.ip)
+
             opcode = Opcode(self.read_byte(chunk))
+
+            # handle binary operations
+            if opcode.value <= Opcode.NOT_EQ.value:
+                b = self.stack.pop()
+                a = self.stack.pop()
+                result = opcode_to_op[opcode](a, b)
+                self.stack.append(result)
+                continue
+
             match opcode:
                 case Opcode.RET:
                     return Result.OK
@@ -286,109 +307,67 @@ class VM:
                     value = chunk.constants[idx]
                     self.stack.append(value)
                     continue
+                case Opcode.DEF_GLOBAL:
+                    idx  = self.read_byte(chunk)
+                    name = chunk.constants[idx]
+                    self.globals[name] = self.stack.pop()
+                    continue
                 case Opcode.PRINT:
                     print(self.stack.pop())
-                    continue
-                case Opcode.LT:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a < b)
-                    continue
-                case Opcode.LTE:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a <= b)
-                    continue
-                case Opcode.GT:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a > b)
-                    continue
-                case Opcode.GTE:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a >= b)
-                    continue
-                case Opcode.EQ:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a == b)
-                    continue
-                case Opcode.NOT_EQ:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a != b)
-                    continue
-                case Opcode.ADD:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a + b)
-                    continue
-                case Opcode.SUB:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a - b)
-                    continue
-                case Opcode.MULT:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a * b)
-                    continue
-                case Opcode.DIV:
-                    b = self.stack.pop()
-                    a = self.stack.pop()
-                    self.stack.append(a / b)
                     continue
                 case Opcode.NEG:
                     a = self.stack.pop()
                     self.stack.append(-a)
+                    continue
+                case Opcode.POP:
+                    self.stack.pop()
+                    continue
+                case Opcode.NIL:
+                    self.stack.append(0)
                     continue
                 case _:
                     print(f'{opcode} unhandled')
                     return Result.RUNTIME_ERR
         return Result.OK
 
-log_lvl = LogLevel.VERBOSE
+log_lvl = LogLevel.DEBUG
 def main():
+    def print_section(name):
+        print('-' * (len(str(name)) + 4))
+        print('| ' + str(name) + ' |')
+        print('-' * (len(str(name)) + 4))
+
     file_name = 'tests/compare.py'
     with open(file_name) as file:
+        if log_lvl.value <= LogLevel.INFO.value:
+            print_section(log_lvl)
+        if log_lvl.value <= LogLevel.INFO.value:
+            print_section('Nodes visited')
+
         src = file.read()
         node = ast.parse(src, filename=file_name)
-        if log_lvl.value > 0:
-            print('-' * (len(str(log_lvl)) + 4))
-            print('| ' + str(log_lvl) + ' |')
-            print('-' * (len(str(log_lvl)) + 4))
-
-        if log_lvl.value > 0:
-            print('')
-            print('-----------------')
-            print('| Nodes visited |')
-            print('-----------------')
         compiler = Compiler(loglvl=log_lvl)
         compiler.visit(node)
 
-        if log_lvl.value > 0:
-            print('')
-            print('----------------')
-            print('| Dissassembly |')
-            print('----------------', end='')
+        if log_lvl.value <= LogLevel.INFO.value:
+            print_section('Dissassembly')
             for chunk in compiler.chunks:
-                print('')
                 chunk.disass()
 
-        if log_lvl.value > 0:
-            print('')
-            print('------')
-            print('| VM |')
-            print('------')
-            if log_lvl == LogLevel.VERBOSE:
-                print('---------------')
-                print('| Stack Trace |')
-                print('---------------')
+        if log_lvl.value <= LogLevel.INFO.value:
+            vm_title = 'VM'
+            if log_lvl.value <= LogLevel.DEBUG.value:
+                vm_title += ' (Stack Trace Enabled)'
+            print_section(vm_title)
 
         vm = VM(loglvl=log_lvl)
         while True:
             res = vm.interpret(compiler.chunk)
+            if log_lvl.value <= LogLevel.DEBUG.value:
+                print_section(f'Globals')
+                print(vm.globals)
+                print_section('Stack')
+                print(vm.stack)
             match res:
                 case Result.OK:
                     break
