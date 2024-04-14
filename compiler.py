@@ -1,5 +1,6 @@
 import ast
 from enum import Enum
+import argparse
 
 class LogLevel(Enum):
     DEBUG   = 0
@@ -36,7 +37,7 @@ class Opcode(Enum):
     DEF_GLOBAL = 25
     POP        = 26
 
-opcode_to_op = {
+binops = {
     Opcode.ADD     : lambda a, b: a +   b,
     Opcode.SUB     : lambda a, b: a -   b,
     Opcode.MULT    : lambda a, b: a *   b,
@@ -77,6 +78,11 @@ class Chunk:
                 value = self.constants[idx]
                 print(f'{offset:04} {opcode} {value}')
                 return offset + 2
+            case Opcode.SET_GLOBAL:
+                idx   = self.code[offset + 1]
+                value = self.constants[idx]
+                print(f'{offset:04} {opcode} {value}')
+                return offset + 2
             case _:
                 print(f'{offset:04} {opcode}')
                 return offset + 1
@@ -93,7 +99,7 @@ class Compiler:
             case LogLevel.DEBUG:
                 print(ast.dump(node))
             case LogLevel.INFO:
-                print(str(node).split(' ')[0][1:])
+                print(str(node).split(' ')[0][5:])
             case _:
                 pass
 
@@ -285,20 +291,14 @@ class VM:
         self.chunk = chunk
         while self.ip < len(chunk.code):
             if self.log_lvl == LogLevel.DEBUG:
-                for obj in self.stack:
-                    print(f'[{obj}]')
+                for i, obj in enumerate(self.stack):
+                    if i == len(self.stack) - 1:
+                        print(f'[{obj}]')
+                    else:
+                        print(f'[{obj}]', end='')
                 chunk.disass_instr(self.ip)
 
             opcode = Opcode(self.read_byte(chunk))
-
-            # handle binary operations
-            if opcode.value <= Opcode.NOT_EQ.value:
-                b = self.stack.pop()
-                a = self.stack.pop()
-                result = opcode_to_op[opcode](a, b)
-                self.stack.append(result)
-                continue
-
             match opcode:
                 case Opcode.RET:
                     return Result.OK
@@ -308,6 +308,11 @@ class VM:
                     self.stack.append(value)
                     continue
                 case Opcode.DEF_GLOBAL:
+                    idx  = self.read_byte(chunk)
+                    name = chunk.constants[idx]
+                    self.globals[name] = self.stack.pop()
+                    continue
+                case Opcode.SET_GLOBAL:
                     idx  = self.read_byte(chunk)
                     name = chunk.constants[idx]
                     self.globals[name] = self.stack.pop()
@@ -326,26 +331,55 @@ class VM:
                     self.stack.append(0)
                     continue
                 case _:
-                    print(f'{opcode} unhandled')
-                    return Result.RUNTIME_ERR
+                    if opcode in binops:
+                        b = self.stack.pop()
+                        a = self.stack.pop()
+                        result = binops[opcode](a, b)
+                        self.stack.append(result)
+                        continue
+                    else:
+                        print(f'{opcode} unhandled')
+                        return Result.RUNTIME_ERR
         return Result.OK
 
-log_lvl = LogLevel.DEBUG
 def main():
+    parser = argparse.ArgumentParser(
+        prog='compiler',
+        description='inputs python outputs made up bytecode'
+    )
+    parser.add_argument(
+        '-l', '--log', type=int, default=LogLevel.ERROR.value,
+        help='log level DEBUG(0) INFO(1) WARNING(2) ERROR(3)'
+    )
+    parser.add_argument('file', help='input a python file (e.g. test.py)')
+    args = parser.parse_args()
+
+    match args.log:
+        case LogLevel.DEBUG.value:
+            log_lvl = LogLevel.DEBUG
+        case LogLevel.INFO.value:
+            log_lvl = LogLevel.INFO
+        case LogLevel.WARNING.value:
+            log_lvl = LogLevel.WARNING
+        case LogLevel.ERROR.value:
+            log_lvl = LogLevel.ERROR
+        case _:
+            msg = f'no log level {args.log}, DEBUG(0) INFO(1) WARNING(2) ERROR(3)'
+            assert False, msg
+
     def print_section(name):
         print('-' * (len(str(name)) + 4))
         print('| ' + str(name) + ' |')
         print('-' * (len(str(name)) + 4))
 
-    file_name = 'tests/compare.py'
-    with open(file_name) as file:
+    with open(args.file) as file:
         if log_lvl.value <= LogLevel.INFO.value:
             print_section(log_lvl)
         if log_lvl.value <= LogLevel.INFO.value:
             print_section('Nodes visited')
 
         src = file.read()
-        node = ast.parse(src, filename=file_name)
+        node = ast.parse(src, filename=args.file)
         compiler = Compiler(loglvl=log_lvl)
         compiler.visit(node)
 
