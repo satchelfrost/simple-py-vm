@@ -3,10 +3,9 @@ from enum import Enum
 import argparse
 
 class LogLevel(Enum):
-    DEBUG   = 0
-    INFO    = 1
-    WARNING = 2
-    ERROR   = 3
+    DEBUG = 0
+    INFO  = 1
+    ERROR = 2
 
 class Opcode(Enum):
     ADD        = 0
@@ -88,7 +87,7 @@ class Chunk:
                 return offset + 1
 
 class Compiler:
-    def __init__(self, loglvl=LogLevel.WARNING):
+    def __init__(self, loglvl=LogLevel.ERROR):
         self.chunks  = [Chunk()]
         self.chunk   = self.chunks[0]
         self.log_lvl = loglvl
@@ -161,7 +160,7 @@ class Compiler:
                     self.globals.add(node.id)
                     self.chunk.code.append(Opcode.DEF_GLOBAL.value)
             case ast.Del():
-                if self.log_lvl.value <= LogLevel.WARNING.value:
+                if self.log_lvl.value <= LogLevel.ERROR.value:
                     print('warning ast.Del() currently does nothing')
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
@@ -344,13 +343,11 @@ class VM:
 
 def main():
     parser = argparse.ArgumentParser(
-        prog='compiler',
-        description='inputs python outputs made up bytecode'
+        prog='python3 pyvm.py',
+        description='inputs python source and runs on a custom stack machine'
     )
-    parser.add_argument(
-        '-l', '--log', type=int, default=LogLevel.ERROR.value,
-        help='log level DEBUG(0) INFO(1) WARNING(2) ERROR(3)'
-    )
+    log_lvls = 'log levels DEBUG(0) INFO(1) ERROR(2)'
+    parser.add_argument('-l', '--log', type=int, default=LogLevel.ERROR.value, help=log_lvls)
     parser.add_argument('file', help='input a python file (e.g. test.py)')
     args = parser.parse_args()
 
@@ -359,13 +356,10 @@ def main():
             log_lvl = LogLevel.DEBUG
         case LogLevel.INFO.value:
             log_lvl = LogLevel.INFO
-        case LogLevel.WARNING.value:
-            log_lvl = LogLevel.WARNING
         case LogLevel.ERROR.value:
             log_lvl = LogLevel.ERROR
         case _:
-            msg = f'no log level {args.log}, DEBUG(0) INFO(1) WARNING(2) ERROR(3)'
-            assert False, msg
+            assert False, f'-l{args.log}?, {log_lvls}'
 
     def print_section(name):
         print('-' * (len(str(name)) + 4))
@@ -373,18 +367,22 @@ def main():
         print('-' * (len(str(name)) + 4))
 
     with open(args.file) as file:
+        src = file.read()
         if log_lvl.value <= LogLevel.INFO.value:
             print_section(log_lvl)
-        if log_lvl.value <= LogLevel.INFO.value:
-            print_section('Nodes visited')
+            print_section('Input Progam')
+            print(src.strip())
+            nodes_visited = 'Nodes visited'
+            if log_lvl.value <= LogLevel.DEBUG.value:
+                nodes_visited += ' (With AST Info)'
+            print_section(nodes_visited)
 
-        src = file.read()
         node = ast.parse(src, filename=args.file)
         compiler = Compiler(loglvl=log_lvl)
         compiler.visit(node)
 
         if log_lvl.value <= LogLevel.INFO.value:
-            print_section('Dissassembly')
+            print_section('Disassembly')
             for chunk in compiler.chunks:
                 chunk.disass()
 
