@@ -35,6 +35,9 @@ class Opcode(Enum):
     SET_GLOBAL = 24
     DEF_GLOBAL = 25
     POP        = 26
+    TRUE       = 27
+    FALSE      = 28
+    ASSERT     = 29
 
 binops = {
     Opcode.ADD     : lambda a, b: a +   b,
@@ -82,25 +85,22 @@ class Chunk:
                 value = self.constants[idx]
                 print(f'{offset:04} {opcode} {value}')
                 return offset + 2
+            case Opcode.GET_GLOBAL:
+                idx   = self.code[offset + 1]
+                value = self.constants[idx]
+                print(f'{offset:04} {opcode} {value}')
+                return offset + 2
             case _:
                 print(f'{offset:04} {opcode}')
                 return offset + 1
 
 class Compiler:
     def __init__(self, loglvl=LogLevel.ERROR):
-        self.chunks  = [Chunk()]
-        self.chunk   = self.chunks[0]
-        self.log_lvl = loglvl
-        self.globals = set()
-
-    def log_node(self, node):
-        match self.log_lvl:
-            case LogLevel.DEBUG:
-                print(ast.dump(node))
-            case LogLevel.INFO:
-                print(str(node).split(' ')[0][5:])
-            case _:
-                pass
+        self.chunks      = [Chunk()]
+        self.chunk       = self.chunks[0]
+        self.log_lvl     = loglvl
+        self.global_idxs = {}
+        self.globals     = set()
 
     def visit(self, node):
         name = node.__class__.__name__
@@ -122,10 +122,7 @@ class Compiler:
 
     def visit_Constant(self, node: ast.Constant):
         self.log_node(node)
-        assert len(self.chunk.constants) < 256, 'exceeded constants for chunk'
-        self.chunk.constants.append(node.value)
-        self.chunk.code.append(Opcode.CONST.value)
-        self.chunk.code.append(len(self.chunk.constants) - 1)
+        self.make_const(node.value)
 
     def visit_Compare(self, node: ast.Compare):
         self.log_node(node)
@@ -140,11 +137,9 @@ class Compiler:
         for target in node.targets:
             match target:
                 case ast.Name():
+                    self.global_idxs[target.id] = self.make_const(target.id)
                     self.visit(node.value)
                     self.visit(target)
-                    assert len(self.chunk.constants) < 256, 'exceeded constants for chunk'
-                    self.chunk.constants.append(target.id)
-                    self.chunk.code.append(len(self.chunk.constants) - 1)
                 case _:
                     assert False, f'unhandled target {target} in Assign'
 
@@ -153,12 +148,15 @@ class Compiler:
         match node.ctx:
             case ast.Load():
                 self.chunk.code.append(Opcode.GET_GLOBAL.value)
+                self.chunk.code.append(self.global_idxs[node.id])
             case ast.Store():
                 if node.id in self.globals:
                     self.chunk.code.append(Opcode.SET_GLOBAL.value)
+                    self.chunk.code.append(self.global_idxs[node.id])
                 else:
                     self.globals.add(node.id)
                     self.chunk.code.append(Opcode.DEF_GLOBAL.value)
+                    self.chunk.code.append(self.global_idxs[node.id])
             case ast.Del():
                 if self.log_lvl.value <= LogLevel.ERROR.value:
                     print('warning ast.Del() currently does nothing')
@@ -268,6 +266,28 @@ class Compiler:
                     self.chunk.code.append(Opcode.PRINT.value)
                     self.chunk.code.append(Opcode.NIL.value)
 
+    def visit_Assert(self, node: ast.Assert):
+        self.visit(node.test)
+        self.chunk.code.append(Opcode.ASSERT.value)
+
+    def log_node(self, node):
+        match self.log_lvl:
+            case LogLevel.DEBUG:
+                print(ast.dump(node))
+            case LogLevel.INFO:
+                print(str(node).split(' ')[0][5:])
+            case _:
+                pass
+
+    def make_const(self, value):
+        assert len(self.chunk.constants) < 256, 'exceeded constants for chunk'
+        self.chunk.constants.append(value)
+        self.chunk.code.append(Opcode.CONST.value)
+        idx = len(self.chunk.constants) - 1
+        self.chunk.code.append(idx)
+        return idx
+
+
 class Result(Enum):
     OK          = 0
     COMPILE_ERR = 1
@@ -311,6 +331,12 @@ class VM:
                     name = chunk.constants[idx]
                     self.globals[name] = self.stack.pop()
                     continue
+                case Opcode.GET_GLOBAL:
+                    idx   = self.read_byte(chunk)
+                    name  = chunk.constants[idx]
+                    value = self.globals[name]
+                    self.stack.append(value)
+                    continue
                 case Opcode.SET_GLOBAL:
                     idx  = self.read_byte(chunk)
                     name = chunk.constants[idx]
@@ -328,6 +354,17 @@ class VM:
                     continue
                 case Opcode.NIL:
                     self.stack.append(0)
+                    continue
+                case Opcode.TRUE:
+                    self.stack.append(True)
+                    continue
+                case Opcode.FALSE:
+                    self.stack.append(False)
+                    continue
+                    continue
+                case Opcode.ASSERT:
+                    if not self.stack.pop():
+                        print('assertion failure')
                     continue
                 case _:
                     if opcode in binops:
