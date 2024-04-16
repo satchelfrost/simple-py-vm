@@ -38,7 +38,8 @@ class Opcode(Enum):
     TRUE       = 27
     FALSE      = 28
     ASSERT     = 29
-    # TODO local variables
+    GET_LOCAL  = 30
+    SET_LOCAL  = 31
 
 binops = {
     Opcode.ADD     : lambda a, b: a +   b,
@@ -91,9 +92,24 @@ class Chunk:
                 value = self.constants[idx]
                 print(f'{offset:04} {opcode} {value}')
                 return offset + 2
+            case Opcode.SET_LOCAL:
+                idx   = self.code[offset + 1]
+                value = self.constants[idx]
+                print(f'{offset:04} {opcode} {value}')
+                return offset + 2
+            case Opcode.GET_LOCAL:
+                idx   = self.code[offset + 1]
+                value = self.constants[idx]
+                print(f'{offset:04} {opcode} {value}')
+                return offset + 2
             case _:
                 print(f'{offset:04} {opcode}')
                 return offset + 1
+
+class Local:
+    def __init__(self, name, depth):
+        self.name  = name
+        self.depth = depth
 
 class Compiler:
     def __init__(self, loglvl=LogLevel.ERROR):
@@ -102,6 +118,8 @@ class Compiler:
         self.log_lvl     = loglvl
         self.global_idxs = {}
         self.globals     = set()
+        self.locals      = []
+        self.scope_depth = 0
 
     def visit(self, node):
         name = node.__class__.__name__
@@ -159,7 +177,7 @@ class Compiler:
                 if self.log_lvl.value <= LogLevel.ERROR.value:
                     print('warning ast.Del() currently does nothing')
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, _):
         assert False, "FunctionDef has no implementation" # TODO
 
     def visit_Return(self, node: ast.Return):
@@ -171,49 +189,49 @@ class Compiler:
         self.visit(node.right)
         self.visit(node.op)
 
-    def visit_Add(self, node: ast.Add):
+    def visit_Add(self, _):
         self.chunk.code.append(Opcode.ADD.value)
 
-    def visit_Sub(self, node: ast.Sub):
+    def visit_Sub(self, _):
         self.chunk.code.append(Opcode.SUB.value)
 
-    def visit_And(self, node: ast.And):
+    def visit_And(self, _):
         self.chunk.code.append(Opcode.AND.value)
 
-    def visit_BitAnd(self, node: ast.BitAnd):
+    def visit_BitAnd(self, _):
         self.chunk.code.append(Opcode.BIT_AND.value)
 
-    def visit_Or(self, node: ast.Or):
+    def visit_Or(self, _):
         self.chunk.code.append(Opcode.OR.value)
 
-    def visit_BitOr(self, node: ast.BitOr):
+    def visit_BitOr(self, _):
         self.chunk.code.append(Opcode.BIT_OR.value)
 
-    def visit_BitXor(self, node: ast.BitXor):
+    def visit_BitXor(self, _):
         self.chunk.code.append(Opcode.BIT_XOR.value)
 
-    def visit_Mult(self, node: ast.Mult):
+    def visit_Mult(self, _):
         self.chunk.code.append(Opcode.MULT.value)
 
-    def visit_Div(self, node: ast.Div):
+    def visit_Div(self, _):
         self.chunk.code.append(Opcode.DIV.value)
 
-    def visit_Lt(self, node: ast.Lt):
+    def visit_Lt(self, _):
         self.chunk.code.append(Opcode.LT.value)
 
-    def visit_LtE(self, node: ast.LtE):
+    def visit_LtE(self, _):
         self.chunk.code.append(Opcode.LTE.value)
 
-    def visit_Gt(self, node: ast.Gt):
+    def visit_Gt(self, _):
         self.chunk.code.append(Opcode.GT.value)
 
-    def visit_GtE(self, node: ast.GtE):
+    def visit_GtE(self, _):
         self.chunk.code.append(Opcode.GTE.value)
 
-    def visit_Eq(self, node: ast.Eq):
+    def visit_Eq(self, _):
         self.chunk.code.append(Opcode.EQ.value)
 
-    def visit_NotEq(self, node: ast.NotEq):
+    def visit_NotEq(self, _):
         self.chunk.code.append(Opcode.NOT_EQ.value)
 
     def visit_UnaryOp(self, node: ast.UnaryOp):
@@ -228,10 +246,10 @@ class Compiler:
             case ast.UAdd():
                 self.chunk.code.append(Opcode.UADD.value)
 
-    def visit_While(self, node: ast.While):
+    def visit_While(self, _):
         assert False, "While has no implementation" # TODO
 
-    def visit_If(self, node: ast.If):
+    def visit_If(self, _):
         assert False, "If has no implementation" # TODO
 
     def visit_Call(self, node: ast.Call): # TODO still incomplete
@@ -311,6 +329,17 @@ class VM:
                     self.stack.append(value)
                     continue
                 case Opcode.SET_GLOBAL:
+                    idx  = self.read_byte(chunk)
+                    name = chunk.constants[idx]
+                    self.globals[name] = self.stack.pop()
+                    continue
+                case Opcode.GET_LOCAL:
+                    idx   = self.read_byte(chunk)
+                    name  = chunk.constants[idx]
+                    value = self.globals[name]
+                    self.stack.append(value)
+                    continue
+                case Opcode.SET_LOCAL:
                     idx  = self.read_byte(chunk)
                     name = chunk.constants[idx]
                     self.globals[name] = self.stack.pop()
