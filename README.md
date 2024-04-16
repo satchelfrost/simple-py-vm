@@ -17,7 +17,7 @@ node = ast.parse(src, filename=args.file)
 
 The variable `node` (the root of the tree) can then be traversed using the visitor pattern. As each node in the AST is visited, the compiler uses the information from each node to generate bytecode. This is different from merely visiting the AST nodes and evaulating/executing them as they are encountered (a.k.a a tree-walk interpreter). Instead we compile the bytecode instructions first, and then have the VM execute them afterwards.
 
-The advantages of a stack machine over a tree-walk interpreter is performance, and the ability to have a 'compiled' version of the code that we can execute at any time. In theory, the bytecode is agnostic to any platform, as long as you have a working VM on that platform ([not an original idea](https://en.wikipedia.org/wiki/Java_virtual_machine)).
+The advantages of a stack machine over a tree-walk interpreter are performance, and the ability to have a 'compiled' version of the code that we can execute at any time. In theory, the bytecode is agnostic to any platform, as long as you have a working VM on that platform ([not an original idea](https://en.wikipedia.org/wiki/Java_virtual_machine)).
 
 >**__Note__**: In case it wasn't clear, `pyvm.py` contains both the compiler plus the VM for simplicity.
 
@@ -68,10 +68,6 @@ will output the following:
 -----------------
 | LogLevel.INFO |
 -----------------
-----------------
-| Input Progam |
-----------------
-3 + 4 - 2 * (-8)
 -----------------
 | Nodes visited |
 -----------------
@@ -88,6 +84,10 @@ UnaryOp
 Constant
 Mult
 Sub
+----------------
+| Input Progam |
+----------------
+3 + 4 - 2 * (-8)
 ---------------
 | Disassembly |
 ---------------
