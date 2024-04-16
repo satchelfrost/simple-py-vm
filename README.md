@@ -88,9 +88,9 @@ UnaryOp
 Constant
 Mult
 Sub
-----------------
+---------------
 | Disassembly |
-----------------
+---------------
 0000 Opcode.CONST 3
 0002 Opcode.CONST 4
 0004 Opcode.ADD

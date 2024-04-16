@@ -38,6 +38,7 @@ class Opcode(Enum):
     TRUE       = 27
     FALSE      = 28
     ASSERT     = 29
+    # TODO local variables
 
 binops = {
     Opcode.ADD     : lambda a, b: a +   b,
@@ -358,7 +359,6 @@ class VM:
                     continue
                 case Opcode.FALSE:
                     self.stack.append(False)
-                    continue
                     continue
                 case Opcode.ASSERT:
                     if not self.stack.pop():
