@@ -122,7 +122,9 @@ class Compiler:
 
     def visit_Constant(self, node: ast.Constant):
         self.log_node(node)
-        self.make_const(node.value)
+        self.chunk.code.append(Opcode.CONST.value)
+        idx = self.make_const(node.value)
+        self.chunk.code.append(idx)
 
     def visit_Compare(self, node: ast.Compare):
         self.log_node(node)
@@ -282,11 +284,7 @@ class Compiler:
     def make_const(self, value):
         assert len(self.chunk.constants) < 256, 'exceeded constants for chunk'
         self.chunk.constants.append(value)
-        self.chunk.code.append(Opcode.CONST.value)
-        idx = len(self.chunk.constants) - 1
-        self.chunk.code.append(idx)
-        return idx
-
+        return len(self.chunk.constants) - 1
 
 class Result(Enum):
     OK          = 0
