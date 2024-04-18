@@ -123,34 +123,34 @@ class Compiler:
 
     def visit(self, node):
         name = node.__class__.__name__
-        visitor = getattr(self, 'visit_' + name, None)
+        visitor = getattr(self, 'visit_' + name.lower(), None)
         if visitor:
             self.log_node(node)
             visitor(node)
         else:
             raise RuntimeError(f'visit_{name} has no implementation. {ast.dump(node)}')
 
-    def visit_Module(self, node: ast.Module):
+    def visit_module(self, node: ast.Module):
         for stmt in node.body:
             self.visit(stmt)
 
-    def visit_Expr(self, node: ast.Expr):
+    def visit_expr(self, node: ast.Expr):
         self.visit(node.value)
         self.chunk.code.append(Opcode.POP.value)
 
-    def visit_Constant(self, node: ast.Constant):
+    def visit_constant(self, node: ast.Constant):
         self.chunk.code.append(Opcode.CONST.value)
         idx = self.make_const(node.value)
         self.chunk.code.append(idx)
 
-    def visit_Compare(self, node: ast.Compare):
+    def visit_compare(self, node: ast.Compare):
         assert len(node.comparators) == 1, 'only a single comparison operand allowed'
         assert len(node.ops) == 1, 'only a single comparison operator allowed'
         self.visit(node.left)
         self.visit(node.comparators[0])
         self.visit(node.ops[0])
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_assign(self, node: ast.Assign):
         for target in node.targets:
             match target:
                 case ast.Name():
@@ -160,7 +160,7 @@ class Compiler:
                 case _:
                     assert False, f'unhandled target {target} in Assign'
 
-    def visit_Name(self, node: ast.Name):
+    def visit_name(self, node: ast.Name):
         match node.ctx:
             case ast.Load():
                 self.chunk.code.append(Opcode.GET_GLOBAL.value)
@@ -177,64 +177,64 @@ class Compiler:
                 if self.log_lvl.value <= LogLevel.ERROR.value:
                     print('warning ast.Del() currently does nothing')
 
-    def visit_FunctionDef(self, _):
+    def visit_functiondef(self, _):
         assert False, "FunctionDef has no implementation" # TODO
 
-    def visit_Return(self, node: ast.Return):
+    def visit_return(self, node: ast.Return):
         self.visit(node.value)
         self.chunk.code.append(Opcode.RET.value)
 
-    def visit_BinOp(self, node: ast.BinOp):
+    def visit_binop(self, node: ast.BinOp):
         self.visit(node.left)
         self.visit(node.right)
         self.visit(node.op)
 
-    def visit_Add(self, _):
+    def visit_add(self, _):
         self.chunk.code.append(Opcode.ADD.value)
 
-    def visit_Sub(self, _):
+    def visit_sub(self, _):
         self.chunk.code.append(Opcode.SUB.value)
 
-    def visit_And(self, _):
+    def visit_and(self, _):
         self.chunk.code.append(Opcode.AND.value)
 
-    def visit_BitAnd(self, _):
+    def visit_bitand(self, _):
         self.chunk.code.append(Opcode.BIT_AND.value)
 
-    def visit_Or(self, _):
+    def visit_or(self, _):
         self.chunk.code.append(Opcode.OR.value)
 
-    def visit_BitOr(self, _):
+    def visit_bitor(self, _):
         self.chunk.code.append(Opcode.BIT_OR.value)
 
-    def visit_BitXor(self, _):
+    def visit_bitxor(self, _):
         self.chunk.code.append(Opcode.BIT_XOR.value)
 
-    def visit_Mult(self, _):
+    def visit_mult(self, _):
         self.chunk.code.append(Opcode.MULT.value)
 
-    def visit_Div(self, _):
+    def visit_div(self, _):
         self.chunk.code.append(Opcode.DIV.value)
 
-    def visit_Lt(self, _):
+    def visit_lt(self, _):
         self.chunk.code.append(Opcode.LT.value)
 
-    def visit_LtE(self, _):
+    def visit_lte(self, _):
         self.chunk.code.append(Opcode.LTE.value)
 
-    def visit_Gt(self, _):
+    def visit_gt(self, _):
         self.chunk.code.append(Opcode.GT.value)
 
-    def visit_GtE(self, _):
+    def visit_gte(self, _):
         self.chunk.code.append(Opcode.GTE.value)
 
-    def visit_Eq(self, _):
+    def visit_eq(self, _):
         self.chunk.code.append(Opcode.EQ.value)
 
-    def visit_NotEq(self, _):
+    def visit_noteq(self, _):
         self.chunk.code.append(Opcode.NOT_EQ.value)
 
-    def visit_UnaryOp(self, node: ast.UnaryOp):
+    def visit_unaryop(self, node: ast.UnaryOp):
         self.visit(node.operand)
         match node.op:
             case ast.USub():
@@ -246,13 +246,13 @@ class Compiler:
             case ast.UAdd():
                 self.chunk.code.append(Opcode.UADD.value)
 
-    def visit_While(self, _):
+    def visit_while(self, _):
         assert False, "While has no implementation" # TODO
 
-    def visit_If(self, _):
+    def visit_if(self, _):
         assert False, "If has no implementation" # TODO
 
-    def visit_Call(self, node: ast.Call): # TODO still incomplete
+    def visit_call(self, node: ast.Call): # TODO still incomplete
         for arg in node.args:
             self.visit(arg)
         match node.func:
@@ -261,7 +261,7 @@ class Compiler:
                     self.chunk.code.append(Opcode.PRINT.value)
                     self.chunk.code.append(Opcode.NIL.value)
 
-    def visit_Assert(self, node: ast.Assert):
+    def visit_assert(self, node: ast.Assert):
         self.visit(node.test)
         self.chunk.code.append(Opcode.ASSERT.value)
 
