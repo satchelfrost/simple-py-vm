@@ -33,16 +33,15 @@ class Opcode(Enum):
     NIL           = 22
     GET_GLOBAL    = 23
     SET_GLOBAL    = 24
-    DEF_GLOBAL    = 25
-    POP           = 26
-    TRUE          = 27
-    FALSE         = 28
-    ASSERT        = 29
-    GET_LOCAL     = 30 # TODO still not working yet
-    SET_LOCAL     = 31 # TODO still not working yet
-    JMP           = 32
-    JMP_IF_FALSE  = 33
-    LOOP          = 34
+    GET_LOCAL     = 25
+    SET_LOCAL     = 26
+    POP           = 27
+    TRUE          = 28
+    FALSE         = 29
+    ASSERT        = 30
+    JMP           = 31
+    JMP_IF_FALSE  = 32
+    LOOP          = 33
 
 binops = {
     Opcode.ADD     : lambda a, b: a +   b,
@@ -76,8 +75,6 @@ class Chunk:
         opcode = Opcode(self.code[offset])
         match opcode:
             case Opcode.CONST:
-                return self.const_instr(opcode, offset)
-            case Opcode.DEF_GLOBAL:
                 return self.const_instr(opcode, offset)
             case Opcode.SET_GLOBAL:
                 return self.const_instr(opcode, offset)
@@ -116,13 +113,12 @@ class Local:
 
 class Compiler:
     def __init__(self, loglvl=LogLevel.ERROR):
-        self.chunks      = [Chunk()]
-        self.chunk       = self.chunks[0]
-        self.log_lvl     = loglvl
-        self.global_idxs = {}
-        self.globals     = set()
-        self.locals      = []
-        self.scope       = 0
+        self.chunks  = [Chunk()]
+        self.chunk   = self.chunks[0]
+        self.log_lvl = loglvl
+        self.globals = {}
+        self.locals  = []
+        self.scope   = 0
 
     def visit(self, node):
         name = node.__class__.__name__
@@ -166,18 +162,8 @@ class Compiler:
         for target in node.targets:
             match target:
                 case ast.Name():
-                    if self.scope == 0:
-                        self.global_idxs[target.id] = self.make_const(target.id)
-                        self.visit(node.value)
-                        self.visit(target)
-                    else:
-                        for local in reversed(self.locals):
-                            if local.scope != -1 and local.scope < self.scope:
-                                break
-                            if local.name == target.id:
-                                raise RuntimeError(f'variable {target.id} was already in scope {self.scope}')
-                        self.locals.append(Local(target.id, self.scope))
-
+                    self.visit(node.value)
+                    self.visit(target)
                 case _:
                     assert False, f'unhandled target {target} in Assign'
 
@@ -185,15 +171,14 @@ class Compiler:
         match node.ctx:
             case ast.Load():
                 self.chunk.code.append(Opcode.GET_GLOBAL.value)
-                self.chunk.code.append(self.global_idxs[node.id])
+                if node.id not in self.globals:
+                    raise RuntimeError(f'variable "{node.id}" was never defined')
+                self.chunk.code.append(self.globals[node.id])
             case ast.Store():
-                if node.id in self.globals:
-                    self.chunk.code.append(Opcode.SET_GLOBAL.value)
-                    self.chunk.code.append(self.global_idxs[node.id])
-                else:
-                    self.globals.add(node.id)
-                    self.chunk.code.append(Opcode.DEF_GLOBAL.value)
-                    self.chunk.code.append(self.global_idxs[node.id])
+                self.chunk.code.append(Opcode.SET_GLOBAL.value)
+                if node.id not in self.globals:
+                    self.globals[node.id] = self.make_const(node.id)
+                self.chunk.code.append(self.globals[node.id])
             case ast.Del():
                 if self.log_lvl.value <= LogLevel.ERROR.value:
                     print('warning ast.Del() currently does nothing')
@@ -359,6 +344,14 @@ class Compiler:
             self.chunk.code.append(Opcode.POP.value)
             self.locals.pop()
 
+    def resolve_local(self, name):
+        idx = len(self.locals) - 1
+        for local in reversed(self.locals):
+            if name == local.name:
+                return idx
+            idx -= 1
+        return -1
+
 class Result(Enum):
     OK          = 0
     COMPILE_ERR = 1
@@ -409,11 +402,6 @@ class VM:
                     idx   = self.read_byte(chunk)
                     value = chunk.constants[idx]
                     self.stack.append(value)
-                    continue
-                case Opcode.DEF_GLOBAL:
-                    idx  = self.read_byte(chunk)
-                    name = chunk.constants[idx]
-                    self.globals[name] = self.stack.pop()
                     continue
                 case Opcode.GET_GLOBAL:
                     idx   = self.read_byte(chunk)
