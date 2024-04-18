@@ -99,14 +99,14 @@ class Chunk:
 
     def const_instr(self, opcode: Opcode, offset):
         idx   = self.code[offset + 1]
-        value = self.constants[idx]
-        print(f'{offset:04} {opcode} {value}')
+        value = "'" + str(self.constants[idx]) + "'"
+        print(f'{offset:04} {opcode} {idx} {value}')
         return offset + 2
 
     def jmp_instr(self, opcode: Opcode, sign, offset):
         jmp  = self.code[offset + 1] << 8
         jmp |= self.code[offset + 2] << 0
-        print(f'{offset:04} {opcode} {offset + 3 + sign * jmp}')
+        print(f'{offset:04} {opcode} -> {offset + 3 + sign * jmp}')
         return offset + 3
 
 class Local:
