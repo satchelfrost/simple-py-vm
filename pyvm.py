@@ -8,38 +8,41 @@ class LogLevel(Enum):
     ERROR = 2
 
 class Opcode(Enum):
-    ADD        = 0
-    SUB        = 1
-    MULT       = 2
-    DIV        = 3
-    AND        = 4
-    BIT_AND    = 5
-    OR         = 6
-    BIT_OR     = 7
-    BIT_XOR    = 8
-    LT         = 9
-    LTE        = 10
-    GT         = 11
-    GTE        = 12
-    EQ         = 13
-    NOT_EQ     = 14
-    INVERT     = 15
-    NOT        = 16
-    UADD       = 17
-    NEG        = 18
-    RET        = 19
-    CONST      = 20
-    PRINT      = 21
-    NIL        = 22
-    GET_GLOBAL = 23
-    SET_GLOBAL = 24
-    DEF_GLOBAL = 25
-    POP        = 26
-    TRUE       = 27
-    FALSE      = 28
-    ASSERT     = 29
-    GET_LOCAL  = 30
-    SET_LOCAL  = 31
+    ADD           = 0
+    SUB           = 1
+    MULT          = 2
+    DIV           = 3
+    AND           = 4
+    BIT_AND       = 5
+    OR            = 6
+    BIT_OR        = 7
+    BIT_XOR       = 8
+    LT            = 9
+    LTE           = 10
+    GT            = 11
+    GTE           = 12
+    EQ            = 13
+    NOT_EQ        = 14
+    INVERT        = 15
+    NOT           = 16
+    UADD          = 17
+    NEG           = 18
+    RET           = 19
+    CONST         = 20
+    PRINT         = 21
+    NIL           = 22
+    GET_GLOBAL    = 23
+    SET_GLOBAL    = 24
+    DEF_GLOBAL    = 25
+    POP           = 26
+    TRUE          = 27
+    FALSE         = 28
+    ASSERT        = 29
+    GET_LOCAL     = 30 # TODO still not working yet
+    SET_LOCAL     = 31 # TODO still not working yet
+    JMP           = 32
+    JMP_IF_FALSE  = 33
+    LOOP          = 34
 
 binops = {
     Opcode.ADD     : lambda a, b: a +   b,
@@ -73,43 +76,43 @@ class Chunk:
         opcode = Opcode(self.code[offset])
         match opcode:
             case Opcode.CONST:
-                idx   = self.code[offset + 1]
-                value = self.constants[idx]
-                print(f'{offset:04} {opcode} {value}')
-                return offset + 2
+                return self.const_instr(opcode, offset)
             case Opcode.DEF_GLOBAL:
-                idx   = self.code[offset + 1]
-                value = self.constants[idx]
-                print(f'{offset:04} {opcode} {value}')
-                return offset + 2
+                return self.const_instr(opcode, offset)
             case Opcode.SET_GLOBAL:
-                idx   = self.code[offset + 1]
-                value = self.constants[idx]
-                print(f'{offset:04} {opcode} {value}')
-                return offset + 2
+                return self.const_instr(opcode, offset)
             case Opcode.GET_GLOBAL:
-                idx   = self.code[offset + 1]
-                value = self.constants[idx]
-                print(f'{offset:04} {opcode} {value}')
-                return offset + 2
+                return self.const_instr(opcode, offset)
             case Opcode.SET_LOCAL:
-                idx   = self.code[offset + 1]
-                value = self.constants[idx]
-                print(f'{offset:04} {opcode} {value}')
-                return offset + 2
+                return self.const_instr(opcode, offset)
             case Opcode.GET_LOCAL:
-                idx   = self.code[offset + 1]
-                value = self.constants[idx]
-                print(f'{offset:04} {opcode} {value}')
-                return offset + 2
+                return self.const_instr(opcode, offset)
+            case Opcode.JMP:
+                return self.jmp_instr(opcode, 1, offset)
+            case Opcode.JMP_IF_FALSE:
+                return self.jmp_instr(opcode, 1, offset)
+            case Opcode.LOOP:
+                return self.jmp_instr(opcode, -1, offset)
             case _:
                 print(f'{offset:04} {opcode}')
                 return offset + 1
 
+    def const_instr(self, opcode: Opcode, offset):
+        idx   = self.code[offset + 1]
+        value = self.constants[idx]
+        print(f'{offset:04} {opcode} {value}')
+        return offset + 2
+
+    def jmp_instr(self, opcode: Opcode, sign, offset):
+        jmp  = self.code[offset + 1] << 8
+        jmp |= self.code[offset + 2] << 0
+        print(f'{offset:04} {opcode} {offset + 3 + sign * jmp}')
+        return offset + 3
+
 class Local:
-    def __init__(self, name, depth):
+    def __init__(self, name, scope):
         self.name  = name
-        self.depth = depth
+        self.scope = scope
 
 class Compiler:
     def __init__(self, loglvl=LogLevel.ERROR):
@@ -119,7 +122,7 @@ class Compiler:
         self.global_idxs = {}
         self.globals     = set()
         self.locals      = []
-        self.scope_depth = 0
+        self.scope       = 0
 
     def visit(self, node):
         name = node.__class__.__name__
@@ -128,7 +131,7 @@ class Compiler:
             self.log_node(node)
             visitor(node)
         else:
-            raise RuntimeError(f'visit_{name} has no implementation. {ast.dump(node)}')
+            raise RuntimeError(f'visit_{name.lower()} has no implementation.')
 
     def visit_module(self, node: ast.Module):
         for stmt in node.body:
@@ -150,13 +153,31 @@ class Compiler:
         self.visit(node.comparators[0])
         self.visit(node.ops[0])
 
+    def visit_boolop(self, node: ast.BoolOp):
+        self.visit(node.values[0])
+        for value in node.values[1:]:
+            self.visit(value)
+            self.visit(node.op)
+
+    def visit_pass(self, _):
+        pass
+
     def visit_assign(self, node: ast.Assign):
         for target in node.targets:
             match target:
                 case ast.Name():
-                    self.global_idxs[target.id] = self.make_const(target.id)
-                    self.visit(node.value)
-                    self.visit(target)
+                    if self.scope == 0:
+                        self.global_idxs[target.id] = self.make_const(target.id)
+                        self.visit(node.value)
+                        self.visit(target)
+                    else:
+                        for local in reversed(self.locals):
+                            if local.scope != -1 and local.scope < self.scope:
+                                break
+                            if local.name == target.id:
+                                raise RuntimeError(f'variable {target.id} was already in scope {self.scope}')
+                        self.locals.append(Local(target.id, self.scope))
+
                 case _:
                     assert False, f'unhandled target {target} in Assign'
 
@@ -246,11 +267,38 @@ class Compiler:
             case ast.UAdd():
                 self.chunk.code.append(Opcode.UADD.value)
 
-    def visit_while(self, _):
-        assert False, "While has no implementation" # TODO
+    def visit_while(self, node: ast.While):
+        loop_start = len(self.chunk.code)
+        self.visit(node.test)
 
-    def visit_if(self, _):
-        assert False, "If has no implementation" # TODO
+        # self.begin_scope()
+        exit_jmp = self.emit_jmp(Opcode.JMP_IF_FALSE.value)
+        self.chunk.code.append(Opcode.POP.value)
+        for stmt in node.body:
+            self.visit(stmt)
+        self.emit_loop(loop_start)
+        self.patch_jmp(exit_jmp)
+        self.chunk.code.append(Opcode.POP.value)
+        # self.end_scope()
+
+    def visit_if(self, node: ast.If):
+        self.visit(node.test)
+
+        # self.begin_scope()
+        then_jmp = self.emit_jmp(Opcode.JMP_IF_FALSE.value)
+        self.chunk.code.append(Opcode.POP.value)
+        for stmt in node.body:
+            self.visit(stmt)
+        # self.end_scope()
+
+        # self.begin_scope()
+        else_jmp = self.emit_jmp(Opcode.JMP.value)
+        self.patch_jmp(then_jmp)
+        self.chunk.code.append(Opcode.POP.value)
+        for stmt in node.orelse:
+            self.visit(stmt)
+        self.patch_jmp(else_jmp)
+        # self.end_scope()
 
     def visit_call(self, node: ast.Call): # TODO still incomplete
         for arg in node.args:
@@ -275,9 +323,41 @@ class Compiler:
                 pass
 
     def make_const(self, value):
-        assert len(self.chunk.constants) < 256, 'exceeded constants for chunk'
+        assert len(self.chunk.constants) < 255, 'exceeded constants for chunk'
         self.chunk.constants.append(value)
         return len(self.chunk.constants) - 1
+
+    def emit_jmp(self, opcode):
+        self.chunk.code.append(opcode)
+        self.chunk.code.append(0xff)
+        self.chunk.code.append(0xff)
+        return len(self.chunk.code) - 2
+
+    def patch_jmp(self, offset):
+        jmp = len(self.chunk.code) - offset - 2
+        if jmp > 65535:
+            raise RuntimeError('too much code to jump over')
+        self.chunk.code[offset + 0] = (jmp >> 8) & 0xff
+        self.chunk.code[offset + 1] = (jmp >> 0) & 0xff
+
+    def emit_loop(self, loop_start):
+        self.chunk.code.append(Opcode.LOOP.value)
+        offset = len(self.chunk.code) - loop_start + 2
+        if offset > 65535:
+            raise RuntimeError('loop body too large')
+        self.chunk.code.append((offset >> 8) & 0xff)
+        self.chunk.code.append((offset >> 0) & 0xff)
+
+    def begin_scope(self):
+        self.scope += 1
+
+    def end_scope(self):
+        self.scope -= 1
+        for local in reversed(self.locals):
+            if local.scope < self.scope:
+                break
+            self.chunk.code.append(Opcode.POP.value)
+            self.locals.pop()
 
 class Result(Enum):
     OK          = 0
@@ -291,15 +371,28 @@ class VM:
         self.chunk   = None
         self.log_lvl = loglvl
         self.globals = {}
+        self.limit   = 200
 
     def read_byte(self, chunk):
         byte = chunk.code[self.ip]
         self.ip += 1
         return byte
 
+    def read_short(self, chunk):
+        short  = chunk.code[self.ip] << 8
+        self.ip += 1
+        short |= chunk.code[self.ip]
+        self.ip += 1
+        return short
+
     def interpret(self, chunk : Chunk):
         self.chunk = chunk
+        instr_count = 0
         while self.ip < len(chunk.code):
+            instr_count += 1
+            if instr_count > self.limit:
+                print("instruction limit reached, possibly bugs")
+                return Result.RUNTIME_ERR
             if self.log_lvl == LogLevel.DEBUG:
                 for i, obj in enumerate(self.stack):
                     if i == len(self.stack) - 1:
@@ -366,6 +459,19 @@ class VM:
                 case Opcode.ASSERT:
                     if not self.stack.pop():
                         print('assertion failure')
+                    continue
+                case Opcode.JMP_IF_FALSE:
+                    offset = self.read_short(chunk)
+                    if (not self.stack[-1]):
+                        self.ip += offset
+                    continue
+                case Opcode.JMP:
+                    offset = self.read_short(chunk)
+                    self.ip += offset
+                    continue
+                case Opcode.LOOP:
+                    offset = self.read_short(chunk)
+                    self.ip -= offset
                     continue
                 case _:
                     if opcode in binops:
@@ -442,13 +548,13 @@ def main():
                 case Result.OK:
                     break
                 case Result.COMPILE_ERR:
-                    print('compiler error')
+                    print('COMPILER ERROR')
                     return
                 case Result.RUNTIME_ERR:
-                    print('runtime error')
+                    print('RUNTIME ERROR')
                     return
                 case _:
-                    print(f'unknown error {res}')
+                    print(f'UNKNOWN ERROR {res}')
                     return
 
 if __name__ == '__main__':
