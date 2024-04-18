@@ -256,7 +256,6 @@ class Compiler:
         loop_start = len(self.chunk.code)
         self.visit(node.test)
 
-        # self.begin_scope()
         exit_jmp = self.emit_jmp(Opcode.JMP_IF_FALSE.value)
         self.chunk.code.append(Opcode.POP.value)
         for stmt in node.body:
@@ -264,26 +263,21 @@ class Compiler:
         self.emit_loop(loop_start)
         self.patch_jmp(exit_jmp)
         self.chunk.code.append(Opcode.POP.value)
-        # self.end_scope()
 
     def visit_if(self, node: ast.If):
         self.visit(node.test)
 
-        # self.begin_scope()
         then_jmp = self.emit_jmp(Opcode.JMP_IF_FALSE.value)
         self.chunk.code.append(Opcode.POP.value)
         for stmt in node.body:
             self.visit(stmt)
-        # self.end_scope()
 
-        # self.begin_scope()
         else_jmp = self.emit_jmp(Opcode.JMP.value)
         self.patch_jmp(then_jmp)
         self.chunk.code.append(Opcode.POP.value)
         for stmt in node.orelse:
             self.visit(stmt)
         self.patch_jmp(else_jmp)
-        # self.end_scope()
 
     def visit_call(self, node: ast.Call): # TODO still incomplete
         for arg in node.args:
