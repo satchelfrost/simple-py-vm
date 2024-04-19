@@ -183,8 +183,17 @@ class Compiler:
                 if self.log_lvl.value <= LogLevel.ERROR.value:
                     print('warning ast.Del() currently does nothing')
 
-    def visit_functiondef(self, _):
-        assert False, "FunctionDef has no implementation" # TODO
+    def visit_functiondef(self, node: ast.FunctionDef):
+        self.begin_scope()
+        for a in node.args.args:
+            self.chunk.locals.append(Local(a.arg, self.scope))
+        for stmt in node.body:
+            self.visit(stmt)
+        self.end_scope()
+
+        self.chunk.code.append(Opcode.SET_GLOBAL.value)
+        self.globals[node.name] = self.make_const(node.name)
+        self.chunk.code.append(self.globals[node.name])
 
     def visit_return(self, node: ast.Return):
         self.visit(node.value)
