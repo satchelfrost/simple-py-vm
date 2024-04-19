@@ -42,6 +42,7 @@ class Opcode(Enum):
     JMP           = 31
     JMP_IF_FALSE  = 32
     LOOP          = 33
+    CALL          = 34
 
 binops = {
     Opcode.ADD     : lambda a, b: a +   b,
@@ -81,9 +82,11 @@ class Chunk:
             case Opcode.GET_GLOBAL:
                 return self.const_instr(opcode, offset)
             case Opcode.SET_LOCAL:
-                return self.const_instr(opcode, offset)
+                return self.byte_instr(opcode, offset)
             case Opcode.GET_LOCAL:
-                return self.const_instr(opcode, offset)
+                return self.byte_instr(opcode, offset)
+            case Opcode.CALL:
+                return self.byte_instr(opcode, offset)
             case Opcode.JMP:
                 return self.jmp_instr(opcode, 1, offset)
             case Opcode.JMP_IF_FALSE:
@@ -100,25 +103,27 @@ class Chunk:
         print(f'{offset:04} {opcode} {idx} {value}')
         return offset + 2
 
+    def byte_instr(self, opcode: Opcode, offset):
+        slot  = self.code[offset + 1]
+        print(f'{offset:04} {opcode} {slot}')
+        return offset + 2
+
     def jmp_instr(self, opcode: Opcode, sign, offset):
         jmp  = self.code[offset + 1] << 8
         jmp |= self.code[offset + 2] << 0
         print(f'{offset:04} {opcode} -> {offset + 3 + sign * jmp}')
         return offset + 3
 
-class Local:
-    def __init__(self, name, scope):
-        self.name  = name
-        self.scope = scope
-
 class Compiler:
     def __init__(self, loglvl=LogLevel.ERROR):
-        self.chunks  = [Chunk()]
-        self.chunk   = self.chunks[0]
-        self.log_lvl = loglvl
-        self.globals = {}
-        self.locals  = []
-        self.scope   = 0
+        self.chunks       = [Chunk()]
+        self.chunk        = self.chunks[0]
+        self.log_lvl      = loglvl
+        self.globals      = {}
+        self.locals       = []
+        self.global_scope = True
+        self.arg_count    = 0 # TODO: may need to reset
+
 
     def visit(self, node):
         name = node.__class__.__name__
@@ -168,25 +173,49 @@ class Compiler:
                     assert False, f'unhandled target {target} in Assign'
 
     def visit_name(self, node: ast.Name):
-        match node.ctx:
+        if self.global_scope:
+            self.match_global(node.ctx, node.id)
+        else:
+            self.match_local(node.ctx, node.id)
+
+    def match_local(self, ctx, name):
+        match ctx:
             case ast.Load():
-                self.chunk.code.append(Opcode.GET_GLOBAL.value)
-                if node.id not in self.globals:
-                    raise RuntimeError(f'variable "{node.id}" was never defined')
-                self.chunk.code.append(self.globals[node.id])
+                self.chunk.code.append(Opcode.GET_LOCAL.value)
+                if name not in self.locals:
+                    raise RuntimeError(f'local variable "{name}" was never defined')
+                self.chunk.code.append(len(self.locals) - 1)
             case ast.Store():
-                self.chunk.code.append(Opcode.SET_GLOBAL.value)
-                if node.id not in self.globals:
-                    self.globals[node.id] = self.make_const(node.id)
-                self.chunk.code.append(self.globals[node.id])
+                self.chunk.code.append(Opcode.SET_LOCAL.value)
+                if name not in self.locals:
+                    self.locals.append(name)
+                self.chunk.code.append(len(self.locals) - 1)
+                print(f'length locals {self.locals}')
             case ast.Del():
                 if self.log_lvl.value <= LogLevel.ERROR.value:
-                    print('warning ast.Del() currently does nothing')
+                    print('WARNING - ast.Del() currently does nothing in locals')
+
+    def match_global(self, ctx, name):
+        match ctx:
+            case ast.Load():
+                self.chunk.code.append(Opcode.GET_GLOBAL.value)
+                if name not in self.globals:
+                    raise RuntimeError(f'variable "{name}" was never defined')
+                self.chunk.code.append(self.globals[name])
+            case ast.Store():
+                self.chunk.code.append(Opcode.SET_GLOBAL.value)
+                if name not in self.globals:
+                    self.globals[name] = self.make_const(name)
+                self.chunk.code.append(self.globals[name])
+            case ast.Del():
+                if self.log_lvl.value <= LogLevel.ERROR.value:
+                    print('WARNING - ast.Del() currently does nothing in globals')
 
     def visit_functiondef(self, node: ast.FunctionDef):
         self.begin_scope()
+        self.arg_count = len(node.args.args)
         for a in node.args.args:
-            self.chunk.locals.append(Local(a.arg, self.scope))
+            self.locals.append(a.arg)
         for stmt in node.body:
             self.visit(stmt)
         self.end_scope()
@@ -296,6 +325,9 @@ class Compiler:
                 if node.func.id == 'print':
                     self.chunk.code.append(Opcode.PRINT.value)
                     self.chunk.code.append(Opcode.NIL.value)
+                else:
+                    self.chunk.code.append(Opcode.CALL.value)
+                    self.chunk.code.append(self.arg_count)
 
     def visit_assert(self, node: ast.Assert):
         self.visit(node.test)
@@ -337,23 +369,13 @@ class Compiler:
         self.chunk.code.append((offset >> 0) & 0xff)
 
     def begin_scope(self):
-        self.scope += 1
+        self.global_scope = False
 
     def end_scope(self):
-        self.scope -= 1
-        for local in reversed(self.locals):
-            if local.scope < self.scope:
-                break
+        self.global_scope = True
+        for _ in self.locals:
             self.chunk.code.append(Opcode.POP.value)
             self.locals.pop()
-
-    def resolve_local(self, name):
-        idx = len(self.locals) - 1
-        for local in reversed(self.locals):
-            if name == local.name:
-                return idx
-            idx -= 1
-        return -1
 
 class Result(Enum):
     OK          = 0
@@ -419,14 +441,14 @@ class VM:
                     continue
                 case Opcode.GET_LOCAL:
                     idx   = self.read_byte(chunk)
-                    name  = chunk.constants[idx]
-                    value = self.globals[name]
+                    value = self.stack[idx]
                     self.stack.append(value)
                     continue
                 case Opcode.SET_LOCAL:
                     idx  = self.read_byte(chunk)
-                    name = chunk.constants[idx]
-                    self.globals[name] = self.stack.pop()
+                    val  = self.stack[-1]
+                    print(f'stack {self.stack}, arg_count {val}')
+                    self.stack[idx] = val
                     continue
                 case Opcode.PRINT:
                     print(self.stack.pop())
@@ -464,6 +486,10 @@ class VM:
                     offset = self.read_short(chunk)
                     self.ip -= offset
                     continue
+                case Opcode.CALL:
+                    arg_count = self.read_byte(chunk)
+                    print(f'arg_count {arg_count}, stack {self.stack}')
+                    raise RuntimeError('STOPPING')
                 case _:
                     if opcode in binops:
                         b = self.stack.pop()
