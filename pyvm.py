@@ -121,7 +121,7 @@ class Compiler:
         self.log_lvl      = loglvl
         self.globals      = {}
         self.locals       = []
-        self.global_scope = True
+        self.global_scope = False
         self.arg_count    = 0 # TODO: may need to reset
 
 
@@ -184,13 +184,14 @@ class Compiler:
                 self.chunk.code.append(Opcode.GET_LOCAL.value)
                 if name not in self.locals:
                     raise RuntimeError(f'local variable "{name}" was never defined')
-                self.chunk.code.append(len(self.locals) - 1)
+                self.chunk.code.append(self.locals.index(name))
             case ast.Store():
                 self.chunk.code.append(Opcode.SET_LOCAL.value)
                 if name not in self.locals:
                     self.locals.append(name)
-                self.chunk.code.append(len(self.locals) - 1)
-                print(f'length locals {self.locals}')
+                    self.chunk.code.append(len(self.locals) - 1)
+                else:
+                    self.chunk.code.append(self.locals.index(name))
             case ast.Del():
                 if self.log_lvl.value <= LogLevel.ERROR.value:
                     print('WARNING - ast.Del() currently does nothing in locals')
@@ -389,7 +390,7 @@ class VM:
         self.chunk   = None
         self.log_lvl = loglvl
         self.globals = {}
-        self.limit   = 200
+        self.limit   = 500
 
     def read_byte(self, chunk):
         byte = chunk.code[self.ip]
@@ -445,9 +446,11 @@ class VM:
                     self.stack.append(value)
                     continue
                 case Opcode.SET_LOCAL:
-                    idx  = self.read_byte(chunk)
-                    val  = self.stack[-1]
-                    print(f'stack {self.stack}, arg_count {val}')
+                    idx = self.read_byte(chunk)
+                    if idx + 1 != len(self.stack):
+                        val = self.stack.pop()
+                    else:
+                        val = self.stack[-1]
                     self.stack[idx] = val
                     continue
                 case Opcode.PRINT:
