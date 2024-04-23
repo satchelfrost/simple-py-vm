@@ -81,11 +81,11 @@ class Function:
             case Opcode.CONST:
                 return self.const_instr(opcode, offset)
             case Opcode.SET_VAR:
-                return self.byte_instr(opcode, offset)
+                return self.var_instr(opcode, offset)
             case Opcode.GET_VAR:
-                return self.byte_instr(opcode, offset)
+                return self.var_instr(opcode, offset)
             case Opcode.CALL:
-                return self.byte_instr(opcode, offset)
+                return self.call_instr(opcode, offset)
             case Opcode.JMP:
                 return self.jmp_instr(opcode, 1, offset)
             case Opcode.JMP_IF_FALSE:
@@ -105,6 +105,17 @@ class Function:
     def byte_instr(self, opcode: Opcode, offset):
         slot  = self.code[offset + 1]
         print(f'{offset:04} {opcode} {slot}')
+        return offset + 2
+
+    def call_instr(self, opcode: Opcode, offset):
+        slot  = self.code[offset + 1]
+        print(f'{offset:04} {opcode} arity {slot}')
+        return offset + 2
+
+    def var_instr(self, opcode: Opcode, offset):
+        slot = self.code[offset + 1]
+        value = "'" + str(self.locals[slot]) + "'"
+        print(f'{offset:04} {opcode} {slot} {value}')
         return offset + 2
 
     def jmp_instr(self, opcode: Opcode, sign, offset):
