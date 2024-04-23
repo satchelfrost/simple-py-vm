@@ -207,6 +207,10 @@ class Compiler:
         for stmt in node.body:
             self.visit(stmt)
 
+        if not isinstance(node.body[-1], ast.Return):
+            self.func.emit_byte(Opcode.NIL.value)
+            self.func.emit_byte(Opcode.RET.value)
+
         self.func = tmp
 
     def visit_return(self, node: ast.Return):
@@ -309,7 +313,6 @@ class Compiler:
             case ast.Name():
                 if node.func.id == 'print':
                     self.func.emit_byte(Opcode.PRINT.value)
-                    self.func.emit_byte(Opcode.NIL.value)
                 else:
                     self.func.emit_byte(Opcode.CALL.value)
                     if node.func.id in self.funcs:
@@ -356,7 +359,7 @@ class Compiler:
         self.func.emit_byte((offset >> 8) & 0xff)
         self.func.emit_byte((offset >> 0) & 0xff)
 
-class Result(Enum):
+class Result(Enum): # TODO get rid of this
     OK          = 0
     COMPILE_ERR = 1
     RUNTIME_ERR = 2
@@ -415,7 +418,16 @@ class VM:
             opcode = Opcode(self.read_byte(self.frame.func))
             match opcode:
                 case Opcode.RET:
-                    return Result.OK
+                    res = self.stack.pop()
+                    try:
+                        for _ in range(self.frame.func.arity + 1):
+                            self.stack.pop()
+                        self.frames.pop()
+                        self.frame = self.frames[-1]
+                        self.stack.append(res)
+                    except IndexError:
+                        raise RuntimeError('no more frames left to pop')
+                    continue
                 case Opcode.CONST:
                     idx   = self.read_byte(self.frame.func)
                     value = self.frame.func.constants[idx]
@@ -435,7 +447,7 @@ class VM:
                     self.frame.set_slot(self.stack, idx, val)
                     continue
                 case Opcode.PRINT:
-                    print(self.stack.pop())
+                    print(self.stack[-1])
                     continue
                 case Opcode.NEG:
                     a = self.stack.pop()
@@ -470,7 +482,7 @@ class VM:
                     offset = self.read_short(self.frame.func)
                     self.frame.ip -= offset
                     continue
-                case Opcode.CALL:
+                case Opcode.CALL: # TODO: add call frame to disassembly
                     arg_count = self.read_byte(self.frame.func)
                     name = self.stack[-arg_count - 1]
                     if name in self.funcs:
@@ -478,10 +490,10 @@ class VM:
                         if func.arity != arg_count:
                             raise RuntimeError(f'"{name}" arity {func.arity}, args {arg_count}')
                         else:
-                            self.frame = Frame(func, 0, len(self.stack) - arg_count)
+                            self.frame = Frame(func, 0, len(self.stack) - arg_count) # TODO if frame ip always begins at zero...
                             self.frames.append(self.frame)
                     else:
-                        raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
+                        raise RuntimeError(f'function named "{name}" arity {func.arity}, args {arg_count}')
 
                 case _:
                     if opcode in binops:
