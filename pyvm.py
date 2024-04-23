@@ -94,6 +94,8 @@ class Chunk:
     def const_instr(self, opcode: Opcode, offset):
         idx   = self.code[offset + 1]
         value = "'" + str(self.constants[idx]) + "'"
+        if isinstance(self.constants[idx], Function):
+            value = "'" + str(self.constants[idx].name) + "'"
         print(f'{offset:04} {opcode} {idx} {value}')
         return offset + 2
 
@@ -190,6 +192,9 @@ class Compiler:
                     print('WARNING - ast.Del() currently does nothing in locals')
 
     def visit_functiondef(self, node: ast.FunctionDef):
+        self.func.emit_byte(Opcode.CONST.value)
+        self.func.emit_byte(self.make_const(node.name))
+
         self.funcs.append(Function(node.name, len(node.args.args)))
         func      = self.func
         self.func = self.funcs[-1]
@@ -304,7 +309,14 @@ class Compiler:
                     self.func.emit_byte(Opcode.NIL.value)
                 else:
                     self.func.emit_byte(Opcode.CALL.value)
-                    self.func.emit_byte(self.funcs.index(self.func))
+                    found = False
+                    for func in self.funcs:
+                        if node.func.id == func.name:
+                            self.func.emit_byte(func.arity)
+                            found = True
+                            break
+                    if not found:
+                        raise RuntimeError(f'{node.func.id} not found in list')
 
     def visit_assert(self, node: ast.Assert):
         self.visit(node.test)
@@ -355,14 +367,21 @@ class Frame:
         self.func: Function = func
         self.ip             = ip
         self.slots          = slots
-        self.func.locals    = []
+
+    def __str__(self):
+        return f'"{self.func.name}", ip {self.ip}, slots {self.slots}'
 
 class VM:
-    def __init__(self, loglvl=LogLevel.ERROR):
+    def __init__(self, funcs, loglvl=LogLevel.ERROR):
         self.ip      = 0
         self.stack   = []
 
-        self.frames  = []
+        self.funcs   = funcs # TODO temporary
+
+        self.frames  = [Frame(self.funcs[0], self.ip, self.stack)]
+
+        self.frame   = self.frames[0]
+
         self.log_lvl = loglvl
         self.limit   = 500
 
@@ -453,6 +472,24 @@ class VM:
                     continue
                 case Opcode.CALL:
                     arg_count = self.read_byte(chunk)
+                    found = False
+                    for func in self.funcs:
+                        if self.stack[-arg_count - 1] == func.name:
+                            found = True
+                            if func.arity != arg_count:
+                                raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
+                            else:
+                                self.frames.append(Frame(func, self.ip, len(self.stack) - arg_count - 1))
+                                self.ip = 0
+                                chunk.code = func.chunk.code
+                                # for frame in self.frames:
+                                    # print(frame)
+
+                                # raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
+                            break
+                    if not found:
+                        raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
+
                 case _:
                     if opcode in binops:
                         b = self.stack.pop()
@@ -517,7 +554,7 @@ def main():
                 vm_title += ' (Stack Trace Enabled)'
             print_section(vm_title)
 
-        vm = VM(loglvl=log_lvl)
+        vm = VM(compiler.funcs, loglvl=log_lvl)
         while True:
             res = vm.interpret(compiler.func.chunk)
             if log_lvl.value <= LogLevel.DEBUG.value:
