@@ -1,3 +1,5 @@
-def func(a):
+def func(a, b):
+    a = a + b
     print(a)
-func(3 + 4)
+    c = 42
+func(3 + 4, 3)

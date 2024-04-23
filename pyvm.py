@@ -60,10 +60,15 @@ binops = {
     Opcode.NOT_EQ  : lambda a, b: a !=  b,
 }
 
-class Chunk:
-    def __init__(self):
+class Function:
+    def __init__(self, arity=0):
         self.code      = bytearray()
         self.constants = []
+        self.locals    = []
+        self.arity     = arity
+
+    def emit_byte(self, byte):
+        self.code.append(byte)
 
     def disass(self):
         offset = 0
@@ -94,8 +99,6 @@ class Chunk:
     def const_instr(self, opcode: Opcode, offset):
         idx   = self.code[offset + 1]
         value = "'" + str(self.constants[idx]) + "'"
-        if isinstance(self.constants[idx], Function):
-            value = "'" + str(self.constants[idx].name) + "'"
         print(f'{offset:04} {opcode} {idx} {value}')
         return offset + 2
 
@@ -110,20 +113,10 @@ class Chunk:
         print(f'{offset:04} {opcode} -> {offset + 3 + sign * jmp}')
         return offset + 3
 
-class Function:
-    def __init__(self, name, arity):
-        self.name   = name
-        self.arity  = arity
-        self.chunk  = Chunk()
-        self.locals = []
-
-    def emit_byte(self, byte):
-        self.chunk.code.append(byte)
-
 class Compiler:
     def __init__(self, loglvl=LogLevel.ERROR):
-        self.funcs   = [Function('main', 0)]
-        self.func    = self.funcs[0]
+        self.funcs   = {'main' : Function()}
+        self.func    = self.funcs['main']
         self.log_lvl = loglvl
 
     def visit(self, node):
@@ -145,8 +138,7 @@ class Compiler:
 
     def visit_constant(self, node: ast.Constant):
         self.func.emit_byte(Opcode.CONST.value)
-        idx = self.make_const(node.value)
-        self.func.emit_byte(idx)
+        self.func.emit_byte(self.make_const(node.value))
 
     def visit_compare(self, node: ast.Compare):
         assert len(node.comparators) == 1, 'only a single comparison operand allowed'
@@ -192,19 +184,19 @@ class Compiler:
                     print('WARNING - ast.Del() currently does nothing in locals')
 
     def visit_functiondef(self, node: ast.FunctionDef):
-        self.func.emit_byte(Opcode.CONST.value)
-        self.func.emit_byte(self.make_const(node.name))
+        self.func.code.append(Opcode.CONST.value)
+        self.func.code.append(self.make_const(node.name))
 
-        self.funcs.append(Function(node.name, len(node.args.args)))
-        func      = self.func
-        self.func = self.funcs[-1]
+        self.funcs[node.name] = Function(len(node.args.args))
+        tmp                   = self.func
+        self.func             = self.funcs[node.name]
 
         for a in node.args.args:
             self.func.locals.append(a.arg)
         for stmt in node.body:
             self.visit(stmt)
 
-        self.func = func
+        self.func = tmp
 
     def visit_return(self, node: ast.Return):
         self.visit(node.value)
@@ -273,7 +265,7 @@ class Compiler:
                 self.func.emit_byte(Opcode.UADD.value)
 
     def visit_while(self, node: ast.While):
-        loop_start = len(self.func.chunk.code)
+        loop_start = len(self.func.code)
         self.visit(node.test)
 
         exit_jmp = self.emit_jmp(Opcode.JMP_IF_FALSE.value)
@@ -309,14 +301,10 @@ class Compiler:
                     self.func.emit_byte(Opcode.NIL.value)
                 else:
                     self.func.emit_byte(Opcode.CALL.value)
-                    found = False
-                    for func in self.funcs:
-                        if node.func.id == func.name:
-                            self.func.emit_byte(func.arity)
-                            found = True
-                            break
-                    if not found:
-                        raise RuntimeError(f'{node.func.id} not found in list')
+                    if node.func.id in self.funcs:
+                        self.func.emit_byte(self.funcs[node.func.id].arity)
+                    else:
+                        raise RuntimeError(f'{node.func.id} not found')
 
     def visit_assert(self, node: ast.Assert):
         self.visit(node.test)
@@ -332,26 +320,26 @@ class Compiler:
                 pass
 
     def make_const(self, value):
-        assert len(self.func.chunk.constants) < 255, 'exceeded constants for chunk'
-        self.func.chunk.constants.append(value)
-        return len(self.func.chunk.constants) - 1
+        assert len(self.func.constants) < 255, 'exceeded constants for function'
+        self.func.constants.append(value)
+        return len(self.func.constants) - 1
 
     def emit_jmp(self, opcode):
         self.func.emit_byte(opcode)
         self.func.emit_byte(0xff)
         self.func.emit_byte(0xff)
-        return len(self.func.chunk.code) - 2
+        return len(self.func.code) - 2
 
     def patch_jmp(self, offset):
-        jmp = len(self.func.chunk.code) - offset - 2
+        jmp = len(self.func.code) - offset - 2
         if jmp > 65535:
             raise RuntimeError('too much code to jump over')
-        self.func.chunk.code[offset + 0] = (jmp >> 8) & 0xff
-        self.func.chunk.code[offset + 1] = (jmp >> 0) & 0xff
+        self.func.code[offset + 0] = (jmp >> 8) & 0xff
+        self.func.code[offset + 1] = (jmp >> 0) & 0xff
 
     def emit_loop(self, loop_start):
         self.func.emit_byte(Opcode.LOOP.value)
-        offset = len(self.func.chunk.code) - loop_start + 2
+        offset = len(self.func.code) - loop_start + 2
         if offset > 65535:
             raise RuntimeError('loop body too large')
         self.func.emit_byte((offset >> 8) & 0xff)
@@ -363,41 +351,46 @@ class Result(Enum):
     RUNTIME_ERR = 2
 
 class Frame:
-    def __init__(self, func, ip, slots):
+    def __init__(self, func, ip, sp):
         self.func: Function = func
         self.ip             = ip
-        self.slots          = slots
+        self.sp             = sp
+
+    def get_slot(self, stack, idx):
+        return stack[idx + self.sp]
+
+    def set_slot(self, stack, idx, val):
+        stack[idx + self.sp] = val
 
     def __str__(self):
-        return f'"{self.func.name}", ip {self.ip}, slots {self.slots}'
+        return f'ip {self.ip}, sp {self.sp}'
 
 class VM:
     def __init__(self, funcs, loglvl=LogLevel.ERROR):
         self.stack   = []
         self.funcs   = funcs
-        self.frame   = Frame(self.funcs[0], 0, self.stack)
+        self.frame   = Frame(self.funcs['main'], 0, 0)
         self.frames  = [self.frame]
         self.log_lvl = loglvl
-        self.limit   = 500
+        self.limit   = 500 # TODO remove
 
-    def read_byte(self, chunk):
-        byte = chunk.code[self.frame.ip]
+    def read_byte(self, func: Function):
+        byte = func.code[self.frame.ip]
         self.frame.ip += 1
         return byte
 
-    def read_short(self, chunk):
-        short  = chunk.code[self.frame.ip] << 8
+    def read_short(self, func: Function):
+        short  = func.code[self.frame.ip] << 8
         self.frame.ip += 1
-        short |= chunk.code[self.frame.ip]
+        short |= func.code[self.frame.ip]
         self.frame.ip += 1
         return short
 
     def interpret(self):
-        instr_count = 0
-        chunk = self.frame.func.chunk
-        while self.frame.ip < len(chunk.code):
-            instr_count += 1
-            if instr_count > self.limit:
+        instr_count = 0 # TODO remove
+        while self.frame.ip < len(self.frame.func.code):
+            instr_count += 1 # TODO remove
+            if instr_count > self.limit: # TODO remove
                 print("instruction limit reached, possibly bugs")
                 return Result.RUNTIME_ERR
             if self.log_lvl == LogLevel.DEBUG:
@@ -406,30 +399,29 @@ class VM:
                         print(f'[{obj}]')
                     else:
                         print(f'[{obj}]', end='')
-                chunk.disass_instr(self.frame.ip)
+                self.frame.func.disass_instr(self.frame.ip)
 
-            opcode = Opcode(self.read_byte(chunk))
+            opcode = Opcode(self.read_byte(self.frame.func))
             match opcode:
                 case Opcode.RET:
                     return Result.OK
                 case Opcode.CONST:
-                    idx   = self.read_byte(chunk)
-                    value = chunk.constants[idx]
+                    idx   = self.read_byte(self.frame.func)
+                    value = self.frame.func.constants[idx]
                     self.stack.append(value)
                     continue
                 case Opcode.GET_VAR:
-                    idx   = self.read_byte(chunk)
-                    # value = self.stack[idx]
-                    value = self.frame.slots[idx]
+                    idx   = self.read_byte(self.frame.func)
+                    value = self.frame.get_slot(self.stack, idx)
                     self.stack.append(value)
                     continue
                 case Opcode.SET_VAR:
-                    idx = self.read_byte(chunk)
-                    if idx + 1 != len(self.stack):
+                    idx = self.read_byte(self.frame.func)
+                    if idx + self.frame.sp + 1 != len(self.stack):
                         val = self.stack.pop()
                     else:
                         val = self.stack[-1]
-                    self.stack[idx] = val
+                    self.frame.set_slot(self.stack, idx, val)
                     continue
                 case Opcode.PRINT:
                     print(self.stack.pop())
@@ -455,35 +447,29 @@ class VM:
                         print('assertion failure')
                     continue
                 case Opcode.JMP_IF_FALSE:
-                    offset = self.read_short(chunk)
+                    offset = self.read_short(self.frame.func)
                     if (not self.stack[-1]):
                         self.frame.ip += offset
                     continue
                 case Opcode.JMP:
-                    offset = self.read_short(chunk)
+                    offset = self.read_short(self.frame.func)
                     self.frame.ip += offset
                     continue
                 case Opcode.LOOP:
-                    offset = self.read_short(chunk)
+                    offset = self.read_short(self.frame.func)
                     self.frame.ip -= offset
                     continue
                 case Opcode.CALL:
-                    arg_count = self.read_byte(chunk)
-                    found = False
-                    for func in self.funcs:
-                        if self.stack[-arg_count - 1] == func.name:
-                            found = True
-                            if func.arity != arg_count:
-                                raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
-                            else:
-                                # self.frames.append(Frame(func, 0, len(self.stack) - arg_count - 1))
-                                self.frames.append(Frame(func, 0, self.frame.slots[1:]))
-                                self.frame = self.frames[-1]
-                                chunk = self.frame.func.chunk
-                                # for frame in self.frames:
-                                #     print(frame)
-                            break
-                    if not found:
+                    arg_count = self.read_byte(self.frame.func)
+                    name = self.stack[-arg_count - 1]
+                    if name in self.funcs:
+                        func = self.funcs[name]
+                        if func.arity != arg_count:
+                            raise RuntimeError(f'"{name}" arity {func.arity}, args {arg_count}')
+                        else:
+                            self.frame = Frame(func, 0, len(self.stack) - arg_count)
+                            self.frames.append(self.frame)
+                    else:
                         raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
 
                 case _:
@@ -540,9 +526,13 @@ def main():
             print_section('Input Progam')
             print(src.strip())
             print_section('Disassembly')
-            for func in compiler.funcs:
-                print(f'{func.name}:')
-                func.chunk.disass()
+            print(f'main:')
+            compiler.funcs['main'].disass()
+            for name, func in compiler.funcs.items():
+                if name == 'main':
+                    continue
+                print(f'{name}:')
+                func.disass()
 
         if log_lvl.value <= LogLevel.INFO.value:
             vm_title = 'VM'
