@@ -373,33 +373,29 @@ class Frame:
 
 class VM:
     def __init__(self, funcs, loglvl=LogLevel.ERROR):
-        self.ip      = 0
         self.stack   = []
-
-        self.funcs   = funcs # TODO temporary
-
-        self.frames  = [Frame(self.funcs[0], self.ip, self.stack)]
-
-        self.frame   = self.frames[0]
-
+        self.funcs   = funcs
+        self.frame   = Frame(self.funcs[0], 0, self.stack)
+        self.frames  = [self.frame]
         self.log_lvl = loglvl
         self.limit   = 500
 
     def read_byte(self, chunk):
-        byte = chunk.code[self.ip]
-        self.ip += 1
+        byte = chunk.code[self.frame.ip]
+        self.frame.ip += 1
         return byte
 
     def read_short(self, chunk):
-        short  = chunk.code[self.ip] << 8
-        self.ip += 1
-        short |= chunk.code[self.ip]
-        self.ip += 1
+        short  = chunk.code[self.frame.ip] << 8
+        self.frame.ip += 1
+        short |= chunk.code[self.frame.ip]
+        self.frame.ip += 1
         return short
 
-    def interpret(self, chunk : Chunk):
+    def interpret(self):
         instr_count = 0
-        while self.ip < len(chunk.code):
+        chunk = self.frame.func.chunk
+        while self.frame.ip < len(chunk.code):
             instr_count += 1
             if instr_count > self.limit:
                 print("instruction limit reached, possibly bugs")
@@ -410,7 +406,7 @@ class VM:
                         print(f'[{obj}]')
                     else:
                         print(f'[{obj}]', end='')
-                chunk.disass_instr(self.ip)
+                chunk.disass_instr(self.frame.ip)
 
             opcode = Opcode(self.read_byte(chunk))
             match opcode:
@@ -423,7 +419,8 @@ class VM:
                     continue
                 case Opcode.GET_VAR:
                     idx   = self.read_byte(chunk)
-                    value = self.stack[idx]
+                    # value = self.stack[idx]
+                    value = self.frame.slots[idx]
                     self.stack.append(value)
                     continue
                 case Opcode.SET_VAR:
@@ -460,15 +457,15 @@ class VM:
                 case Opcode.JMP_IF_FALSE:
                     offset = self.read_short(chunk)
                     if (not self.stack[-1]):
-                        self.ip += offset
+                        self.frame.ip += offset
                     continue
                 case Opcode.JMP:
                     offset = self.read_short(chunk)
-                    self.ip += offset
+                    self.frame.ip += offset
                     continue
                 case Opcode.LOOP:
                     offset = self.read_short(chunk)
-                    self.ip -= offset
+                    self.frame.ip -= offset
                     continue
                 case Opcode.CALL:
                     arg_count = self.read_byte(chunk)
@@ -479,13 +476,12 @@ class VM:
                             if func.arity != arg_count:
                                 raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
                             else:
-                                self.frames.append(Frame(func, self.ip, len(self.stack) - arg_count - 1))
-                                self.ip = 0
-                                chunk.code = func.chunk.code
+                                # self.frames.append(Frame(func, 0, len(self.stack) - arg_count - 1))
+                                self.frames.append(Frame(func, 0, self.frame.slots[1:]))
+                                self.frame = self.frames[-1]
+                                chunk = self.frame.func.chunk
                                 # for frame in self.frames:
-                                    # print(frame)
-
-                                # raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
+                                #     print(frame)
                             break
                     if not found:
                         raise RuntimeError(f'"{func.name}" arity {func.arity}, args {arg_count}')
@@ -556,7 +552,7 @@ def main():
 
         vm = VM(compiler.funcs, loglvl=log_lvl)
         while True:
-            res = vm.interpret(compiler.func.chunk)
+            res = vm.interpret()
             if log_lvl.value <= LogLevel.DEBUG.value:
                 print_section('Stack')
                 print(vm.stack)
