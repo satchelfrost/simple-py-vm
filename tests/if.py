@@ -1,4 +1,13 @@
-if False:
-    print('if statements work')
+condition = False
+
+if condition:
+    assert condition
 else:
-    print('else statements also work')
+    assert not condition
+
+condition = True
+
+if condition:
+    assert condition
+else:
+    assert not condition

@@ -1,9 +1,6 @@
 def func(a, b):
-    a = a + b
-    print(a)
-    c = 42
-    # return c
+    return a + b 
 
-func(3 + 4, 3)
-a = 2
-print(a)
+a = func(3 + 4, 3)
+b = 2
+assert (a + b) == 12

@@ -195,12 +195,15 @@ class Compiler:
                     print('WARNING - ast.Del() currently does nothing in locals')
 
     def visit_functiondef(self, node: ast.FunctionDef):
-        self.func.code.append(Opcode.CONST.value)
-        self.func.code.append(self.make_const(node.name))
+        # self.func.code.append(Opcode.CONST.value)
+        # self.func.code.append(self.make_const(node.name))
 
         self.funcs[node.name] = Function(len(node.args.args))
         tmp                   = self.func
         self.func             = self.funcs[node.name]
+
+        # self.func.code.append(Opcode.CONST.value)
+        # self.func.code.append(self.make_const(node.name))
 
         for a in node.args.args:
             self.func.locals.append(a.arg)
@@ -314,6 +317,8 @@ class Compiler:
                 if node.func.id == 'print':
                     self.func.emit_byte(Opcode.PRINT.value)
                 else:
+                    self.func.code.append(Opcode.CONST.value)
+                    self.func.code.append(self.make_const(node.func.id))
                     self.func.emit_byte(Opcode.CALL.value)
                     if node.func.id in self.funcs:
                         self.func.emit_byte(self.funcs[node.func.id].arity)
@@ -386,7 +391,6 @@ class VM:
         self.frame   = Frame(self.funcs['main'], 0, 0)
         self.frames  = [self.frame]
         self.log_lvl = loglvl
-        self.limit   = 500 # TODO remove
 
     def read_byte(self, func: Function):
         byte = func.code[self.frame.ip]
@@ -401,12 +405,7 @@ class VM:
         return short
 
     def interpret(self):
-        instr_count = 0 # TODO remove
         while self.frame.ip < len(self.frame.func.code):
-            instr_count += 1 # TODO remove
-            if instr_count > self.limit: # TODO remove
-                print("instruction limit reached, possibly bugs")
-                return Result.RUNTIME_ERR
             if self.log_lvl == LogLevel.DEBUG:
                 for i, obj in enumerate(self.stack):
                     if i == len(self.stack) - 1:
@@ -420,7 +419,7 @@ class VM:
                 case Opcode.RET:
                     res = self.stack.pop()
                     try:
-                        for _ in range(self.frame.func.arity + 1):
+                        for _ in range(len(self.frame.func.locals) + 1):
                             self.stack.pop()
                         self.frames.pop()
                         self.frame = self.frames[-1]
@@ -459,6 +458,10 @@ class VM:
                 case Opcode.NIL:
                     self.stack.append(0)
                     continue
+                case Opcode.NOT:
+                    a = self.stack.pop()
+                    self.stack.append(not a)
+                    continue
                 case Opcode.TRUE:
                     self.stack.append(True)
                     continue
@@ -467,7 +470,7 @@ class VM:
                     continue
                 case Opcode.ASSERT:
                     if not self.stack.pop():
-                        print('assertion failure')
+                        exit(1)
                     continue
                 case Opcode.JMP_IF_FALSE:
                     offset = self.read_short(self.frame.func)
@@ -484,14 +487,19 @@ class VM:
                     continue
                 case Opcode.CALL: # TODO: add call frame to disassembly
                     arg_count = self.read_byte(self.frame.func)
-                    name = self.stack[-arg_count - 1]
+                    name = self.stack[-1]
                     if name in self.funcs:
                         func = self.funcs[name]
                         if func.arity != arg_count:
                             raise RuntimeError(f'"{name}" arity {func.arity}, args {arg_count}')
                         else:
-                            self.frame = Frame(func, 0, len(self.stack) - arg_count) # TODO if frame ip always begins at zero...
+                            self.frame = Frame(func, 0, len(self.stack) - arg_count)
                             self.frames.append(self.frame)
+
+                            tmp = self.stack[-1]
+                            for i in range(self.frame.func.arity):
+                                self.stack[-1 - i] = self.stack[-1 - i - 1]
+                            self.stack[-1 - self.frame.func.arity] = tmp
                     else:
                         raise RuntimeError(f'function named "{name}" arity {func.arity}, args {arg_count}')
 
