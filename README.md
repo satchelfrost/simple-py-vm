@@ -39,6 +39,7 @@ python3 pyvm.py tests/print.py
 Which should output
 
 ```bash
+expect 23
 23
 ```
 
@@ -91,11 +92,12 @@ Sub
 ---------------
 | Disassembly |
 ---------------
-0000 Opcode.CONST 3
-0002 Opcode.CONST 4
+main:
+0000 Opcode.CONST 0 '3'
+0002 Opcode.CONST 1 '4'
 0004 Opcode.ADD
-0005 Opcode.CONST 2
-0007 Opcode.CONST 8
+0005 Opcode.CONST 2 '2'
+0007 Opcode.CONST 3 '8'
 0009 Opcode.NEG
 0010 Opcode.MULT
 0011 Opcode.SUB
@@ -151,10 +153,6 @@ Sub()
 0011 Opcode.SUB
 [23]
 0012 Opcode.POP
------------
-| Globals |
------------
-{}
 ---------
 | Stack |
 ---------
@@ -162,3 +160,15 @@ Sub()
 ```
 
 Now we can see the VM was actually doing work even though nothing was printed.
+
+## Testing
+
+To run the tests execute the `test.sh` script
+
+```bash
+sh test.sh
+```
+
+## Slides
+
+Link to [slide deck](https://docs.google.com/presentation/d/1soBNmPVKalS6c8L-6RQac1fnk89sOxcS40-WA8vukx4/edit?usp=sharing)
