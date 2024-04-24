@@ -195,15 +195,9 @@ class Compiler:
                     print('WARNING - ast.Del() currently does nothing in locals')
 
     def visit_functiondef(self, node: ast.FunctionDef):
-        # self.func.code.append(Opcode.CONST.value)
-        # self.func.code.append(self.make_const(node.name))
-
         self.funcs[node.name] = Function(len(node.args.args))
         tmp                   = self.func
         self.func             = self.funcs[node.name]
-
-        # self.func.code.append(Opcode.CONST.value)
-        # self.func.code.append(self.make_const(node.name))
 
         for a in node.args.args:
             self.func.locals.append(a.arg)
@@ -364,11 +358,6 @@ class Compiler:
         self.func.emit_byte((offset >> 8) & 0xff)
         self.func.emit_byte((offset >> 0) & 0xff)
 
-class Result(Enum): # TODO get rid of this
-    OK          = 0
-    COMPILE_ERR = 1
-    RUNTIME_ERR = 2
-
 class Frame:
     def __init__(self, func, ip, sp):
         self.func: Function = func
@@ -380,9 +369,6 @@ class Frame:
 
     def set_slot(self, stack, idx, val):
         stack[idx + self.sp] = val
-
-    def __str__(self):
-        return f'ip {self.ip}, sp {self.sp}'
 
 class VM:
     def __init__(self, funcs, loglvl=LogLevel.ERROR):
@@ -485,7 +471,7 @@ class VM:
                     offset = self.read_short(self.frame.func)
                     self.frame.ip -= offset
                     continue
-                case Opcode.CALL: # TODO: add call frame to disassembly
+                case Opcode.CALL:
                     arg_count = self.read_byte(self.frame.func)
                     name = self.stack[-1]
                     if name in self.funcs:
@@ -500,6 +486,9 @@ class VM:
                             for i in range(self.frame.func.arity):
                                 self.stack[-1 - i] = self.stack[-1 - i - 1]
                             self.stack[-1 - self.frame.func.arity] = tmp
+
+                            for i in range(len(self.frame.func.locals) - self.frame.func.arity):
+                                self.stack.append(0)
                     else:
                         raise RuntimeError(f'function named "{name}" arity {func.arity}, args {arg_count}')
 
@@ -511,9 +500,7 @@ class VM:
                         self.stack.append(result)
                         continue
                     else:
-                        print(f'{opcode} unhandled')
-                        return Result.RUNTIME_ERR
-        return Result.OK
+                        raise RuntimeError(f'{opcode} unhandled')
 
 def main():
     parser = argparse.ArgumentParser(
@@ -572,23 +559,10 @@ def main():
             print_section(vm_title)
 
         vm = VM(compiler.funcs, loglvl=log_lvl)
-        while True:
-            res = vm.interpret()
-            if log_lvl.value <= LogLevel.DEBUG.value:
-                print_section('Stack')
-                print(vm.stack)
-            match res:
-                case Result.OK:
-                    break
-                case Result.COMPILE_ERR:
-                    print('COMPILER ERROR')
-                    return
-                case Result.RUNTIME_ERR:
-                    print('RUNTIME ERROR')
-                    return
-                case _:
-                    print(f'UNKNOWN ERROR {res}')
-                    return
+        vm.interpret()
+        if log_lvl.value <= LogLevel.DEBUG.value:
+            print_section('Stack')
+            print(vm.stack)
 
 if __name__ == '__main__':
     main()
