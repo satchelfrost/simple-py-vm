@@ -9,7 +9,6 @@ assert_test() {
 
 echo "Running assertion tests...\n"
 
-
 assert_test assign.py
 assert_test compare.py
 assert_test expr.py
